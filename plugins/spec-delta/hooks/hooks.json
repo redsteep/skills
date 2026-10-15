@@ -1,0 +1,17 @@
+{
+  "description": "Block a new design spec that is missing, or leaves empty, a section of the project's spec template",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/spec-delta.sh\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

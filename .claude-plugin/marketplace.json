@@ -8,6 +8,18 @@
   },
   "plugins": [
     {
+      "name": "pr-when-done",
+      "source": "./plugins/pr-when-done",
+      "description": "A finished branch ends up in a PR: a clean worktree ahead of the default branch with no PR gets one nudge per commit to review and open it.",
+      "category": "workflow"
+    },
+    {
+      "name": "spec-delta",
+      "source": "./plugins/spec-delta",
+      "description": "Design specs list their Delta — every new name, one line each — so a review can subtract the diff from it. A hook blocks new specs that miss a template section.",
+      "category": "workflow"
+    },
+    {
       "name": "review-mode",
       "source": "./plugins/review-mode",
       "description": "While you read a PR, Claude answers questions and runs things but queues change requests instead of editing. Turns on automatically after `gh pr create`.",

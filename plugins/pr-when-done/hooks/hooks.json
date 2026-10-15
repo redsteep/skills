@@ -1,0 +1,16 @@
+{
+  "description": "On Stop, nudge once per commit about a clean worktree that is ahead of the default branch and has no PR",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/pr-when-done.sh\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

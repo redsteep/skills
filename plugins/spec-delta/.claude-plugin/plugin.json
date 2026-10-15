@@ -1,0 +1,12 @@
+{
+  "name": "spec-delta",
+  "version": "0.1.0",
+  "description": "Design specs declare their Delta — every new name in domain, storage, contract and flow, one line each — so a review can subtract the diff from it. A hook blocks a new spec that misses or leaves empty any section of the project's template.",
+  "author": {
+    "name": "Stanislav Krasnoyarov",
+    "url": "https://github.com/redsteep"
+  },
+  "repository": "https://github.com/redsteep/skills",
+  "license": "MIT",
+  "keywords": ["spec", "design", "templates", "hooks", "workflow"]
+}

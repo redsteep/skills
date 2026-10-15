@@ -1,0 +1,12 @@
+{
+  "name": "pr-when-done",
+  "version": "0.1.0",
+  "description": "A finished branch ends up in a PR: when a worktree this session worked in is clean, ahead of the default branch and has no PR, Claude is nudged — once per commit — to review and open it instead of stopping.",
+  "author": {
+    "name": "Stanislav Krasnoyarov",
+    "url": "https://github.com/redsteep"
+  },
+  "repository": "https://github.com/redsteep/skills",
+  "license": "MIT",
+  "keywords": ["pull-request", "worktree", "hooks", "workflow"]
+}
