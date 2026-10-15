@@ -13,6 +13,7 @@ so a project picks up only the skills — and hooks — it enables.
 
 | Plugin | What it does |
 |---|---|
+| [pre-pr-review](plugins/pre-pr-review) | Gated review of a finished branch — surface, E2E, architecture, tests, mutation testing — before `gh pr create` is allowed |
 | [review-mode](plugins/review-mode) | While you read a PR, Claude answers and runs things but queues change requests instead of editing |
 
 ## Enabling for a whole repo
@@ -25,7 +26,7 @@ offered the plugin:
   "extraKnownMarketplaces": {
     "redsteep": { "source": { "source": "github", "repo": "redsteep/skills" } }
   },
-  "enabledPlugins": { "review-mode@redsteep": true }
+  "enabledPlugins": { "pre-pr-review@redsteep": true, "review-mode@redsteep": true }
 }
 ```
 

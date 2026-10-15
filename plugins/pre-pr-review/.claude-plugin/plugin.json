@@ -1,0 +1,12 @@
+{
+  "name": "pre-pr-review",
+  "version": "0.1.0",
+  "description": "Gated review of a finished feature branch before the PR: surface vs the spec, E2E, architecture, test strategy, mutation testing, refactor. Project specifics come from a checked-in profile. Blocks `gh pr create` until the review has run.",
+  "author": {
+    "name": "Stanislav Krasnoyarov",
+    "url": "https://github.com/redsteep"
+  },
+  "repository": "https://github.com/redsteep/skills",
+  "license": "MIT",
+  "keywords": ["code-review", "pull-request", "mutation-testing", "testing", "workflow"]
+}

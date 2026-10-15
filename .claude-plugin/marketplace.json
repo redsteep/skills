@@ -12,6 +12,12 @@
       "source": "./plugins/review-mode",
       "description": "While you read a PR, Claude answers questions and runs things but queues change requests instead of editing. Turns on automatically after `gh pr create`.",
       "category": "workflow"
+    },
+    {
+      "name": "pre-pr-review",
+      "source": "./plugins/pre-pr-review",
+      "description": "Gated review of a finished feature branch before the PR: surface vs the spec, E2E, architecture, test strategy, mutation testing, refactor. Blocks `gh pr create` until the review has run.",
+      "category": "workflow"
     }
   ]
 }

@@ -1,0 +1,79 @@
+# Pre-PR review profile
+
+<!--
+Project profile for the pre-pr-review skill. Save as `.claude/pre-pr-review.md`
+and check it in. Every section is optional — a missing one falls back to the
+skill's generic behaviour — but each one you fill turns a guess into a command.
+Keep section names as they are: the skill and its reviewers refer to them.
+-->
+
+## Layout
+
+- **Source:** <globs of production code, e.g. `src/**`, `app/**`, `migrations/**`>
+- **Tests:** <globs of test code, e.g. `tests/**`, `**/__tests__/**`>
+- **Tests covering a unit:** <how to find them, e.g. `grep -rln "<symbol>" tests/`>
+- **Worktrees:** <where feature worktrees live and how they are made, if any>
+
+## Targeted tests
+
+One command per package, from that package's directory, over the given files:
+
+```bash
+<e.g. cd <worktree>/api && poetry run pytest <files> -q > <scratch>/tests-api.out 2>&1; tail -30 <scratch>/tests-api.out>
+```
+
+Traps:
+- <tests skipped unless a switch is set — the switch, and when the diff makes it necessary>
+- <commands that never return (watch mode) and their one-shot form>
+
+## Extra gates
+
+### <name, e.g. Migrations> — when the diff touches `<paths>`
+
+```bash
+<commands to run>
+```
+
+**Gate:** <what output passes>
+
+## Contract
+
+- **Specs live in:** <dir>
+- **Contract section:** <e.g. `## Delta`, `## Scope`> — template: <path, if any>
+
+## Guidelines
+
+- **Code rules:** <path>
+- **Testing rules:** <path>
+- New rules proposed by reviewers go to: <those files / an issue / the user>
+
+## E2E
+
+- **Applies when:** <e.g. any change under `web/`, or an API response the UI renders>
+- **Start the app:** <commands, ports, env, seed data>
+- **Auth:** <how a test session logs in — never production credentials>
+- **Browser tool:** <e.g. Playwright MCP>
+- **Visual reference:** <prototype / design files and how to serve them>
+- **Screenshots:** <absolute dir>
+
+## Review context
+
+- **Surface by path:** <domain / storage / contract / code paths in this repo>
+- **Duplicate shapes:** <abstractions that already exist and get re-invented here>
+- **Layer → rules sections:** <path → section of the code-rules file>
+- **Severities:** <what counts as Critical / Important here>
+- **Mutation families:** <codebase-specific examples>
+
+## Final checks
+
+```bash
+<lint / type-check / pre-commit over the branch>
+```
+
+- Regenerated artifacts that must be committed: <e.g. generated API client>
+
+## PR
+
+- **Body carries:** <ticket link, skipped steps, mutation counts, extra-gate results>
+- **Hand-over:** <how the app is left running for the user, ports to free afterwards>
+- **Never:** <e.g. `git add -A` because of symlinked env files>

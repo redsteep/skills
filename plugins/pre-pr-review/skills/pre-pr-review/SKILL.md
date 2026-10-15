@@ -1,0 +1,180 @@
+---
+name: pre-pr-review
+description: Gated review of a finished feature branch — surface vs the spec's contract, E2E, architecture, test strategy, mutation testing, refactor, PR. Use when implementation is done and before `gh pr create`, finishing-a-development-branch or a merge.
+---
+
+# Pre-PR Review
+
+Gated review after a feature lands on its branch: surface first, then behavior, then architecture, then tests, then cleanup. Every step ends on a gate with evidence; a gate passes on output you saw, not on judgement.
+
+**Announce at start:** "I'm using the pre-pr-review skill to review this feature."
+
+**Not for:** trivial fixes, docs-only changes, dependency bumps — review them lightly, then open the PR with the `REVIEWED=1` prefix and name the exemption in the PR body.
+
+This plugin's `PreToolUse` hook denies `gh pr create` without the `REVIEWED=1` prefix, so this review is the road to every PR.
+
+The reviewer prompts this skill dispatches sit next to this file: `surface-reviewer.md`, `architecture-reviewer.md`, `test-coverage-reviewer.md`, `mutation-tester.md`.
+
+## The project profile
+
+Everything project-specific — which paths are production code, how to run a targeted test, which extra gates exist, where the rules live, how to bring the app up — comes from the **project profile**, `.claude/pre-pr-review.md` in the repository. Its sections are named; this skill refers to them as **Profile → Section**:
+
+| Section | Holds |
+|---|---|
+| Layout | source paths, test paths, how to find the tests covering a unit |
+| Targeted tests | the command per package, and the traps that make a run look green when it is not |
+| Extra gates | gates triggered by paths in the diff (migrations, generated code, schema files…) |
+| Contract | where specs live and which section of a spec is the contract |
+| Guidelines | the code-rules file, the testing-rules file, and where new rules go |
+| E2E | when it applies, how to start the app, auth, tools, visual reference, where screenshots go |
+| Review context | project-shaped hints for the reviewers: surface kinds by path, duplicate shapes, layer → rules map, mutation families |
+| Final checks | lint / type-check / pre-commit, regenerated artifacts |
+| PR | how the PR is opened, what its body carries, what to hand over after |
+
+**Read the profile in full before step 0.** A section the profile leaves out falls back to the generic behaviour described below.
+
+**No profile?** Infer what you can from the repo (`package.json`, `pyproject.toml`, `Makefile`, CI workflows, `CONTRIBUTING.md`, `CLAUDE.md`), tell the user what you inferred, and offer to write it as `.claude/pre-pr-review.md` from `profile-template.md` in this skill's directory — a profile is checked in so the next review does not re-infer it. Do not run the review on guessed commands without saying they are guessed.
+
+## Step 0: Setup — Main Agent
+
+Work in the feature's worktree when there is one; address it with `git -C <worktree>` and absolute paths (a shell's cwd may reset between calls).
+
+```bash
+BASE_SHA=$(git -C <worktree> merge-base HEAD origin/main)
+HEAD_SHA=$(git -C <worktree> rev-parse HEAD)
+git -C <worktree> diff --stat $BASE_SHA..$HEAD_SHA
+```
+
+From the diff build three lists, reused by every later step:
+
+- **SOURCE_FILES** — changed production files, per **Profile → Layout** (generic: everything that is not a test, doc, fixture or config).
+- **TEST_FILES** — changed test files, plus the existing test files covering each changed source module (find them by the unit under test: grep the test tree for the handler, class or function name).
+- **TARGETED_TEST_COMMAND** — the test runner over TEST_FILES, built per **Profile → Targeted tests**: one command per package, each from its own directory and environment, output redirected to a file and `tail`ed — a pipe loses everything if the run is killed.
+
+**An empty TEST_FILES is the trap.** Most runners given no paths run the whole suite and report green, so an accidental full run looks exactly like a passing targeted one. Never run the command with an empty list, and read the scope out of the output (e.g. `pytest --collect-only -q <files> | tail -1`) rather than assuming it.
+
+**Skipped is not passed.** When the profile names tests that are skipped unless some switch is set (a real database, a service, a credential), and the diff touches what they cover, rerun with the switch and read the skip count in the summary.
+
+Run in the foreground; the full suite belongs to CI.
+
+**Gate:** the targeted command runs green on HEAD. A broken baseline stops the review.
+
+### Extra gates
+
+For every entry in **Profile → Extra gates** whose paths appear in the diff, run its commands now and hold it to its own gate. Reading a migration or a schema change is not running it.
+
+## Step 1: Surface vs declared contract — `general-purpose` subagent
+
+**Skip only when the branch has no spec** — a change small enough to go straight from a chat design to code is small enough not to need this. Say so in the PR body, the way step 2 names a skip.
+
+Otherwise it runs first and alone: surface nobody asked for is deleted here, before steps 2-4 and 5 pay for it. Mutation testing will otherwise write honest tests for an entity you are about to remove.
+
+The contract is the section of this feature's spec named in **Profile → Contract** (generic: a `Delta`, "Changes" or "Scope" section; else the spec's domain / API / data-model sections — the subagent says which it used). Find the spec by topic or ticket number, or ask.
+
+Read `surface-reviewer.md`, fill `{FEATURE_DESCRIPTION}`, `{SPEC_PATH}`, `{BASE_SHA}`, `{HEAD_SHA}`, `{WORKTREE}`, `{PROFILE}`, dispatch a `general-purpose` agent.
+
+Act on the report **in this step**, not in step 7: delete what goes, amend the contract for what stays, rerun the targeted command. Deferring the removal would defeat the ordering — steps 2-4 and 5 would review and test code that is about to disappear. A name the subagent flags as needing a decision goes to the user before the rest of the review runs, never into the PR.
+
+An amendment is said out loud, never written silently: "I'm adding X to the contract because Y". A contract edited quietly during implementation is a record kept after the fact, not a contract.
+
+**Gate:** zero unlisted names left in the diff, and the targeted command green after the removals.
+
+## Steps 2-4: one dispatch — three subagents at once
+
+Nothing connects them: step 2 feeds nothing, step 3 feeds step 7, step 4 feeds step 6. Send all three in a single message so they run concurrently, after step 1 has slimmed the branch and before step 5, which must have the worktree to itself.
+
+Start the app before dispatching — step 2 needs a URL to open. Steps 3 and 4 only read.
+
+### Step 2: E2E in the browser — subagent
+
+**Skip only when** the branch changes nothing a user can see — per **Profile → E2E** (generic: no frontend files changed) — and still run it when a backend change alters a response the UI renders.
+
+Bring the app up from the worktree as **Profile → E2E** describes (ports, auth, data, which dev-server script). Never point a dev backend at production.
+
+Dispatch a `general-purpose` agent with: the feature description, the app URL, the prototype/spec if any, and these instructions:
+
+1. Use the browser tool the profile names (generic: Playwright MCP). Hard-reload before the first check.
+2. Compare the UI against the spec/prototype; flag discrepancies.
+   **Styling vs the visual reference** (its own pass — a behaviour walk-through never catches it): when **Profile → E2E** names a reference (a prototype app, a design file, screenshots), screenshot the same element in both at the same viewport, then list every difference under: copy, layout and spacing, typography (size/weight per text role), colour and tone per state, icons and control style, interactions. A deviation is a finding unless the PR names it as deliberate.
+3. Walk the happy path, then edge cases, empty states, boundaries and error paths.
+4. Report concrete evidence: accessibility-tree nodes, the exact URL after each step, evaluated DOM values. Screenshots go under an **absolute** path (Profile → E2E, generic: `<repo>/.tmp/`).
+5. "Your final message IS the report."
+
+### Step 3: Architecture review — subagent
+
+Read `architecture-reviewer.md`, fill `{FEATURE_DESCRIPTION}`, `{BASE_SHA}`, `{HEAD_SHA}`, `{WORKTREE}`, `{PROFILE}`, dispatch a `general-purpose` agent.
+
+### Step 4: Test strategy — subagent
+
+Read `test-coverage-reviewer.md`, fill `{FEATURE_DESCRIPTION}`, `{SOURCE_FILES}`, `{TEST_FILES}`, `{WORKTREE}`, `{PROFILE}`, dispatch a `general-purpose` agent.
+
+### Joint gate — all three reports in hand
+
+A partial dispatch is not a pass: wait for all three, then check each criterion.
+
+- **Step 2** — every flow works and matches the spec, backed by the evidence above.
+- **Step 3** — no Critical or Important violations. **Findings go to step 7.**
+- **Step 4** — each contract tested once, at the right layer. **Findings go to step 6.**
+
+One failed criterion stops the review; the other two reports stay valid and are not re-run when that one is fixed.
+
+The reviewers check against the rules files in **Profile → Guidelines** — the same files the project loads while the code is written. Their **Missing rules** go to the user as proposed amendments to those files (file + wording), not into the PR and not into a reviewer prompt; a rule that lives only in a reviewer is invisible while the code is written.
+
+## Step 5: Manual mutation testing — subagent
+
+Read `mutation-tester.md`, fill `{FEATURE_DESCRIPTION}`, `{SOURCE_FILES}`, `{TEST_FILES}`, `{TARGETED_TEST_COMMAND}`, `{WORKTREE}`, `{PROFILE}`, dispatch a `general-purpose` agent. Steps 5 and 6 both edit the worktree, so nothing else runs there while step 5 is in flight.
+
+The subagent is the mutation engine (not mutmut or stryker): it applies the mutations the suite is most likely to miss, one at a time, and for every survivor writes a test proven **red** on the mutant and **green** on the original. The discipline rules in `mutation-tester.md` are the protocol; if one slips, restart the step.
+
+**Gate:** every survivor has a killing test, or is justified as equivalent / deferred with a reason; `git diff` shows no mutation residue. **Save findings for step 6.**
+
+## Step 6: Refactor tests — Main Agent
+
+Apply findings from steps 4 and 5, then read every TEST_FILE against the testing rules (Profile → Guidelines) yourself: dedup, naming, shared setup through the project's fixtures/factories, assertions on values rather than presence, tests moved up to the public entry point. Behavior stays fixed. Rerun the targeted command after each change.
+
+**Gate:** targeted tests green after the last change.
+
+## Step 7: Refactor production code — Main Agent
+
+Apply findings from step 3, then read every SOURCE_FILE yourself against the code rules (Profile → Guidelines) and for naming, structure and simplification. Behavior stays fixed. Rerun the targeted command after each change.
+
+**Gate:** targeted tests green, and every command in **Profile → Final checks** clean over the branch — they are what CI runs (generic: the repo's pre-commit / lint / type-check over the changed files). Regenerated artifacts the profile names are committed in the branch.
+
+## Step 8: Open the PR — Main Agent
+
+All gates above passed with evidence → commit the step 5–7 changes (logical commits, not one per mutation), push, and open the PR with the prefix the hook expects:
+
+```bash
+cd <worktree> && REVIEWED=1 gh pr create --title "..." --body "..."
+```
+
+`git add` explicit paths, never `-A`. Put a short review summary in the PR body: the ticket or issue, steps skipped and why (e.g. "no UI → step 2 skipped"), mutation counts (killed / covered / equivalent / deferred), extra-gate results — plus anything **Profile → PR** asks for.
+
+### Hand the app over — whenever step 2 ran
+
+A passing E2E subagent is not the user seeing it. Right after the PR is open, leave the step 2 app up (or start it again) and hand over the URL — the user looks with their own eyes before the merge.
+
+- Run it in the background so it outlives the turn; report the URLs and ports.
+- Name the screens and flows the branch changed, and anything it cannot show (a state that needs production data, a flow behind a feature flag). "The app is up" without a route to click is not a hand-off.
+- Leave it running until the user says they are done, then stop the **processes** — a dev server outlives its worktree and holds the port. Prove it is gone (`lsof -nP -iTCP -sTCP:LISTEN` on the ports you used).
+
+## Re-verification
+
+- Default: rerun only the failed gate.
+- Rerun from step 1 when a fix changes the public API surface (endpoint, response shape, generated types) or touches more than 3 files.
+
+## Gate discipline
+
+| Excuse | Reality |
+|--------|---------|
+| "Unit tests cover the UI" | They miss wiring, auth and render paths |
+| "Architecture looks fine from the diff" | Read the files the diff touches |
+| "Step 4 already covered the tests" | Step 5 measures it — watch what survives |
+| "Nothing to refactor" | Decide after reading every SOURCE_FILE |
+| "Green" (with skips) | Skipped tests are not passing ones — count them |
+| "It's an internal helper, not surface" | Step 1 counts it — unlisted means deleted or justified |
+
+## Integration
+
+**Called after:** subagent-driven-development, executing-plans, or a hand-built feature branch.
+**Followed by:** review mode, if the `review-mode` plugin is enabled — it turns on automatically after `gh pr create`.

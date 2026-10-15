@@ -1,0 +1,17 @@
+{
+  "description": "Deny `gh pr create` until the branch has passed pre-pr-review (opt through with REVIEWED=1)",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/require-pre-pr-review.sh\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
