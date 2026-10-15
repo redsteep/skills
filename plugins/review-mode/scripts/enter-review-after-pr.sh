@@ -17,7 +17,8 @@ cmd=$(jq -r '.tool_input.command // ""' <<<"$payload" 2>/dev/null) || exit 0
 grep -qE '(^|[;&|(])[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*gh[[:space:]]+pr[[:space:]]+create' <<<"$cmd" || exit 0
 # ...and it actually produced a PR. The URL is the only success signal that does
 # not depend on which field the harness puts the output in.
-grep -qoE 'https://github\.com/[^[:space:]"]+/pull/[0-9]+' <<<"$payload" || exit 0
+# Any host, so GitHub Enterprise counts too.
+grep -qoE 'https://[^/[:space:]"]+/[^[:space:]"]+/pull/[0-9]+' <<<"$payload" || exit 0
 # A draft PR is not up for review yet (unattended runs tend to open drafts).
 grep -qE '(^|[[:space:]])--draft([[:space:]]|$)' <<<"$cmd" && exit 0
 

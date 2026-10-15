@@ -9,6 +9,7 @@ Keep section names as they are: the skill and its reviewers refer to them.
 
 ## Layout
 
+- **Base branch:** <the branch PRs target, e.g. `origin/main` — default: the remote's default branch>
 - **Source:** <globs of production code, e.g. `src/**`, `app/**`, `migrations/**`>
 - **Tests:** <globs of test code, e.g. `tests/**`, `**/__tests__/**`>
 - **Tests covering a unit:** <how to find them, e.g. `grep -rln "<symbol>" tests/`>

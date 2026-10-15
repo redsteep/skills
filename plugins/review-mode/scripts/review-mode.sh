@@ -24,7 +24,9 @@ case "${1:-status}" in
 on)
   wt="${2:-}"
   if [[ -z "$wt" ]]; then
-    mapfile -t cands < <(git -C "$project" worktree list --porcelain | awk '/^worktree /{w=$2} /^branch /{if ($2 !~ /\/(main|master)$/) print w}')
+    # Linked worktrees on a branch; the first entry is the main checkout, which
+    # is skipped whatever its branch is called.
+    mapfile -t cands < <(git -C "$project" worktree list --porcelain | awk '/^worktree /{n++; w=$2} /^branch /{if (n > 1) print w}')
     if [[ ${#cands[@]} -eq 1 ]]; then
       wt="${cands[0]}"
     else

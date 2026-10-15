@@ -1,6 +1,6 @@
 ---
 name: pre-pr-review
-description: Gated review of a finished feature branch — surface vs the spec's contract, E2E, architecture, test strategy, mutation testing, refactor, PR. Use when implementation is done and before `gh pr create`, finishing-a-development-branch or a merge.
+description: Gated review of a finished feature branch — surface vs the spec's contract, E2E, architecture, test strategy, mutation testing, refactor, PR. Use when implementation is done, before `gh pr create` or a merge.
 ---
 
 # Pre-PR Review
@@ -39,8 +39,10 @@ Everything project-specific — which paths are production code, how to run a ta
 
 Work in the feature's worktree when there is one; address it with `git -C <worktree>` and absolute paths (a shell's cwd may reset between calls).
 
+The base is the branch the PR will target — **Profile → Layout** names it; generic: the remote's default branch, `git -C <worktree> symbolic-ref --short refs/remotes/origin/HEAD` (e.g. `origin/main`).
+
 ```bash
-BASE_SHA=$(git -C <worktree> merge-base HEAD origin/main)
+BASE_SHA=$(git -C <worktree> merge-base HEAD <base>)
 HEAD_SHA=$(git -C <worktree> rev-parse HEAD)
 git -C <worktree> diff --stat $BASE_SHA..$HEAD_SHA
 ```
@@ -97,7 +99,7 @@ Dispatch a `general-purpose` agent with: the feature description, the app URL, t
 2. Compare the UI against the spec/prototype; flag discrepancies.
    **Styling vs the visual reference** (its own pass — a behaviour walk-through never catches it): when **Profile → E2E** names a reference (a prototype app, a design file, screenshots), screenshot the same element in both at the same viewport, then list every difference under: copy, layout and spacing, typography (size/weight per text role), colour and tone per state, icons and control style, interactions. A deviation is a finding unless the PR names it as deliberate.
 3. Walk the happy path, then edge cases, empty states, boundaries and error paths.
-4. Report concrete evidence: accessibility-tree nodes, the exact URL after each step, evaluated DOM values. Screenshots go under an **absolute** path (Profile → E2E, generic: `<repo>/.tmp/`).
+4. Report concrete evidence: accessibility-tree nodes, the exact URL after each step, evaluated DOM values. Screenshots go under an **absolute** path that is never committed (Profile → E2E, generic: the session's scratch directory) — a relative name lands wherever the browser tool's process happens to run.
 5. "Your final message IS the report."
 
 ### Step 3: Architecture review — subagent
@@ -148,7 +150,7 @@ All gates above passed with evidence → commit the step 5–7 changes (logical 
 cd <worktree> && REVIEWED=1 gh pr create --title "..." --body "..."
 ```
 
-`git add` explicit paths, never `-A`. Put a short review summary in the PR body: the ticket or issue, steps skipped and why (e.g. "no UI → step 2 skipped"), mutation counts (killed / covered / equivalent / deferred), extra-gate results — plus anything **Profile → PR** asks for.
+`git add` explicit paths, never `-A` — nothing stray (local env files, scratch output) rides into the PR. Put a short review summary in the PR body: the ticket or issue, steps skipped and why (e.g. "no UI → step 2 skipped"), mutation counts (killed / covered / equivalent / deferred), extra-gate results — plus anything **Profile → PR** asks for.
 
 ### Hand the app over — whenever step 2 ran
 
@@ -176,5 +178,5 @@ A passing E2E subagent is not the user seeing it. Right after the PR is open, le
 
 ## Integration
 
-**Called after:** subagent-driven-development, executing-plans, or a hand-built feature branch.
+**Called after:** implementation is done — a plan executed by agents or a hand-built feature branch.
 **Followed by:** review mode, if the `review-mode` plugin is enabled — it turns on automatically after `gh pr create`.

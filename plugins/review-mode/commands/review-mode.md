@@ -6,7 +6,8 @@ argument-hint: "[on [worktree] | done | status]"
 Review mode — the user reads a PR while you answer and collect, instead of editing.
 
 `$ARGUMENTS` is `done` to leave the mode, `status` to check it, a worktree path
-to enter it for that worktree, or empty to enter it for the only non-main worktree.
+to enter it for that worktree, or empty to enter it for the only linked worktree
+(the main checkout itself needs its path passed explicitly).
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/scripts/review-mode.sh" on [worktree]   # enter
