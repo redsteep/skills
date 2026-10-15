@@ -9,7 +9,7 @@ A rule that reads well can still change nothing. The mistake it answers already 
 commits that still exist, so the test is a replay: put the amended instructions next to the old
 code and see whether the agents that missed it now don't.
 
-**Propose first, run on a yes.** The replay costs subagents (3–8, see "Cost"). End the
+**Propose first, run on a yes.** The replay costs subagents (3–6, see "Cost"). End the
 amendment line with an offer that names the checks you'd run and the commits; start only when
 the user agrees.
 
@@ -71,27 +71,52 @@ GOOD's architecture?
    functions taking repositories". Add one check per other decision the correction touched
    ("`call_script` is a field on `Lead`, not inside `NextAction`"). Show the checks to the user
    before running — they are the grading contract.
-2. **Runs.** 3 subagents in parallel, each in its own BASE worktree with the amendment overlaid,
-   each told: "Design the spec for this task, following this repo's spec process" + the Task
-   quote. Each writes the spec to a file in its worktree.
+2. **Run.** One subagent in a BASE worktree with the amendment overlaid, told: "Design the spec
+   for this task, following this repo's spec process" + the Task quote. It writes the spec to a
+   file in its worktree. One run shows what the rule steers the writer to; run it once more
+   only when the verdict is borderline.
 3. **Scripted user.** The spec process asks questions. The subagent answers them itself from a
    fixed brief you hand it: the Task quote plus the product decisions recorded in GOOD's spec
    (scope, copy, what's in or out). For any **architectural** question the brief says
    "your call" — the point is to see what the agent chooses unaided.
-4. **Grade.** A separate grader subagent per spec sees only the spec and the checklist and
-   answers pass / fail per check with the line it relied on. It never sees GOOD's code.
+4. **Grade.** A separate grader subagent sees only the spec and the checklist. It first
+   describes the architecture the spec proposes for the lesson's area, then answers pass / fail
+   per check, quoting the spec line it relied on. It never sees GOOD's code.
 
-Pass: every check holds in every run. Report k/3 per check otherwise — a 2/3 is a rule that is
-read but not reliably applied.
+Pass: every check holds.
 
 ## Report
 
+Details first, verdict last — the user judges the rule by what the agents actually did, not by
+the tally.
+
 ```
 Amendment: <file> — "<wording>"
-1a code  BAD   pass/fail   <the finding, quoted>
-1b spec  BAD   pass/fail
-1c ctrl  GOOD  pass/fail
-2  spec from BASE   check-by-check k/3
+Issue: <one sentence>        BAD <sha>   GOOD <sha>   BASE <sha>
+
+1a  Reviewer on BAD code
+    Found: <the finding, quoted, with severity and file:line — or "nothing on this">
+    Verdict: pass / fail — <why, one line>
+
+1b  Reviewer on BAD spec
+    Found: <quoted>
+    Verdict: pass / fail — <why>
+
+1c  Reviewer on GOOD (control)
+    Raised on the Issue's area: <quoted, or "nothing">
+    Verdict: pass / fail
+
+2   Spec from BASE
+    Proposed architecture (for the lesson's area):
+      <the classes / collaborators the spec introduces and what each holds>
+      <its flow for that area — phases, which reads run where, what crosses between them>
+      <where the other decisions the correction touched landed, e.g. which entity holds the field>
+    Checks:
+      ✓/✗ <check> — "<spec line relied on>"
+      …
+    Verdict: pass / fail — <how it differs from GOOD, if it does>
+
+Overall: the rule works / works for review only / doesn't change behaviour — <next step>
 ```
 
 On a fail: say what the agent did instead, sharpen the wording (name the concrete shape, give
@@ -100,5 +125,5 @@ make the first one pass. Stop after two rewrites and bring it to the user.
 
 ## Cost
 
-Check 1: 3 reviewers (+3 graders if not graded inline). Check 2: 3 writers + 3 graders. Say
-the count when proposing; drop 1b or 2 when they don't apply rather than running them empty.
+Check 1: 3 reviewers (+3 graders if not graded inline). Check 2: 1 writer + 1 grader. Say the
+count when proposing; drop 1b or 2 when they don't apply rather than running them empty.

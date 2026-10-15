@@ -21,11 +21,13 @@ the amendment overlaid:
 
 1. **Reviewer** — on the commit that made the mistake, the review must now flag it in the
    code and (if it was planned there) in the spec; on the fixed commit it must stay quiet.
-2. **Spec writer** (architectural lessons only) — three runs design the feature again from
+2. **Spec writer** (architectural lessons only) — one run designs the feature again from
    the pre-feature commit with a scripted user who leaves architecture to the agent; a grader
-   checks each spec against binary checks taken from the fixed commit.
+   describes the architecture it proposed and checks it against binary checks taken from the
+   fixed commit.
 
-Pass/fail only, k/3 for the spec runs. It runs on your yes, not by default.
+The report shows what each agent actually found or proposed, then a pass/fail verdict. It
+runs on your yes, not by default.
 
 ## The project profile
 
