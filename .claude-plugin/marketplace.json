@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "redsteep",
+  "description": "Personal collection of Claude Code skills and plugins",
+  "owner": {
+    "name": "Stanislav Krasnoyarov",
+    "url": "https://github.com/redsteep"
+  },
+  "plugins": [
+    {
+      "name": "review-mode",
+      "source": "./plugins/review-mode",
+      "description": "While you read a PR, Claude answers questions and runs things but queues change requests instead of editing. Turns on automatically after `gh pr create`.",
+      "category": "workflow"
+    }
+  ]
+}

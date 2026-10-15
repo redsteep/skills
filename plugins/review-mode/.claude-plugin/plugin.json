@@ -1,0 +1,12 @@
+{
+  "name": "review-mode",
+  "version": "0.1.0",
+  "description": "While you read a PR, Claude answers questions and runs things but queues change requests instead of editing. Turns on automatically after `gh pr create`.",
+  "author": {
+    "name": "Stanislav Krasnoyarov",
+    "url": "https://github.com/redsteep"
+  },
+  "repository": "https://github.com/redsteep/skills",
+  "license": "MIT",
+  "keywords": ["code-review", "pull-request", "hooks", "workflow"]
+}

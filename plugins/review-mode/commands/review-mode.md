@@ -1,0 +1,44 @@
+---
+description: Review mode — while the user reads a PR, answer questions and queue change requests instead of editing
+argument-hint: "[on [worktree] | done | status]"
+---
+
+Review mode — the user reads a PR while you answer and collect, instead of editing.
+
+`$ARGUMENTS` is `done` to leave the mode, `status` to check it, a worktree path
+to enter it for that worktree, or empty to enter it for the only non-main worktree.
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/review-mode.sh" on [worktree]   # enter
+"${CLAUDE_PLUGIN_ROOT}/scripts/review-mode.sh" add "<line>"    # queue a request
+"${CLAUDE_PLUGIN_ROOT}/scripts/review-mode.sh" done            # leave, print the queue
+"${CLAUDE_PLUGIN_ROOT}/scripts/review-mode.sh" status
+```
+
+Entering is normally automatic — a `PostToolUse` hook turns the mode on the
+moment a non-draft `gh pr create` succeeds. Use this command to enter it for a PR
+opened earlier, to check the state, or to leave.
+
+## While the mode is on
+
+- **A question** — answer it immediately and in full. Runs are allowed and
+  expected: tests, queries, the running app. This is the interactivity the mode
+  exists to protect; "I'll check after we exit" is a failure of the mode, not a
+  rule of it.
+- **A request to change something** — do not do it. Queue it with `add`
+  (the queue lives under `.git/`, so don't edit the file directly):
+  `review-mode.sh add "<the user's wording> — path/file:line — <what you will do>"`
+  Then confirm in one line. No implementation, no plan, no restating their words
+  back at them.
+- **Edits are denied by a hook** inside the reviewed worktree, and a `Stop` hook
+  compares the tree against the snapshot taken on entry — so an edit made through
+  Bash is reported even though the deny hook never saw it.
+- Other worktrees are unaffected: the marker names one branch.
+
+## Leaving
+
+Only on the user's explicit go-ahead. Then `done`, read the queue, and apply the
+whole list in one iteration — ordinary workflow, commits and all.
+
+A marker whose worktree no longer exists is treated as stale and ignored, so a
+forgotten mode does not block edits forever.
