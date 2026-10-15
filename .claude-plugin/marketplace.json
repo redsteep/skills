@@ -14,6 +14,12 @@
       "category": "workflow"
     },
     {
+      "name": "instruction-feedback",
+      "source": "./plugins/instruction-feedback",
+      "description": "When you correct Claude's implementation, it fixes the code and proposes the one-line instruction change that would have prevented it.",
+      "category": "workflow"
+    },
+    {
       "name": "nightly-backlog",
       "source": "./plugins/nightly-backlog",
       "description": "Unattended night run: takes one GitHub issue labelled nightly:ok to a draft PR, and proposes labels for a few unlabelled ones.",

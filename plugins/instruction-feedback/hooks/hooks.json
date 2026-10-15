@@ -1,0 +1,16 @@
+{
+  "description": "On a message that reads as a correction, ask for a one-line proposed amendment to the instructions",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/instruction-feedback.sh\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
