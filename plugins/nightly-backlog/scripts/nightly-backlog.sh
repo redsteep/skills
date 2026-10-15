@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Unattended night run: one tech-debt GitHub issue → one draft PR (see commands/nightly-backlog.md).
+# Unattended night run: one tech-debt backlog item → one draft PR (see commands/nightly-backlog.md).
 #
 # Meant for a timer on the developer's own machine: a cloud routine would see only what is
 # in git, and lose memory, user-level plugins, local test stacks and worktree tooling.
 #
 # Usage:
-#   nightly-backlog.sh <repo>          # pick an issue labelled nightly:ok
-#   nightly-backlog.sh <repo> 331      # force one issue (dry run by hand)
+#   nightly-backlog.sh <repo>          # pick an allowed item
+#   nightly-backlog.sh <repo> <item>   # force one item (dry run by hand)
 #
 # Env:
 #   NIGHTLY_BUDGET_USD   spend cap for the run (default 40)
@@ -14,12 +14,19 @@
 #   NIGHTLY_DIR          logs + reports (default <git common dir>/nightly)
 #   NIGHTLY_PERMISSION_MODE   claude --permission-mode (default auto)
 #
+# The profile (.claude/nightly-backlog.md) feeds the runner three sections:
+#   ## Before  — a ```bash block run before the session (housekeeping); failure is logged, not fatal
+#   ## Deny    — extra --disallowedTools rules, one backticked rule per bullet
+#   ## Notify  — `- **When:** failure, questions, stuck` (tokens: failure questions stuck pr quiet always)
+#                and a ```bash block that gets the report on stdin and
+#                NIGHTLY_SUBJECT / NIGHTLY_STATUS / NIGHTLY_RC / NIGHTLY_REPORT / NIGHTLY_LOGS in env
+#
 # The repo must have the nightly-backlog plugin enabled (its .claude/settings.json),
 # so that `/nightly-backlog` resolves in the headless session.
 
 set -euo pipefail
 
-REPO="$(cd "${1:?usage: nightly-backlog.sh <repo> [issue]}" && pwd)"
+REPO="$(cd "${1:?usage: nightly-backlog.sh <repo> [item]}" && pwd)"
 ISSUE="${2:-}"
 GITDIR="$(git -C "$REPO" rev-parse --path-format=absolute --git-common-dir)"
 LOG_DIR="${NIGHTLY_DIR:-$GITDIR/nightly}"
@@ -55,8 +62,22 @@ DENY=(
   "Bash(ssh:*)"
 )
 
-# Project additions: backticked rules under "## Deny" in the profile, one per bullet.
 PROFILE="$REPO/.claude/nightly-backlog.md"
+
+# Body of a `## <name>` section of the profile.
+section() { [[ -f "$PROFILE" ]] && awk -v want="## $1" '/^## /{on = ($0 == want); next} on' "$PROFILE"; }
+# The first ```bash block of a section.
+code_block() { section "$1" | awk '/^```/{ if (on) exit; on = 1; next } on'; }
+
+# --- Before: housekeeping the agent should not be trusted to improvise -----------
+BEFORE_LOG="$LOG_DIR/$STAMP.before.log"
+BEFORE="$(code_block Before || true)"
+if [[ -n "$BEFORE" ]]; then
+  timeout 10m bash -c "$BEFORE" > "$BEFORE_LOG" 2>&1 \
+    || echo "before: exited with $? — see $BEFORE_LOG" >> "$BEFORE_LOG"
+fi
+
+# Project additions: backticked rules under "## Deny" in the profile, one per bullet.
 if [[ -f "$PROFILE" ]]; then
   while IFS= read -r rule; do
     [[ -n "$rule" ]] && DENY+=("$rule")
@@ -64,11 +85,37 @@ if [[ -f "$PROFILE" ]]; then
            | sed -E 's/^- `([^`]+)`.*/\1/')
 fi
 
+RUN_RC=0
 timeout --kill-after=2m "${NIGHTLY_TIMEOUT:-3h}" \
-  claude -p "/nightly-backlog report=$REPORT $ISSUE" \
+  claude -p "/nightly-backlog report=$REPORT${BEFORE:+ before=$BEFORE_LOG} $ISSUE" \
     --permission-mode "${NIGHTLY_PERMISSION_MODE:-auto}" \
     --disallowedTools "${DENY[@]}" \
     --max-budget-usd "${NIGHTLY_BUDGET_USD:-40}" \
     --output-format stream-json --verbose \
   > "$LOG_DIR/$STAMP.jsonl" 2> "$LOG_DIR/$STAMP.stderr" \
-  || echo "nightly-backlog: exited with $? — see $LOG_DIR/$STAMP.*" >&2
+  || { RUN_RC=$?; echo "nightly-backlog: exited with $RUN_RC — see $LOG_DIR/$STAMP.*" >&2; }
+
+# --- Notify: only when there is something to tell -------------------------------
+# Silence must not mean both "quiet success" and "died", so a failure always
+# counts. The command runs here, outside the session: the agent itself holds no
+# messaging tools.
+NOTIFY="$(code_block Notify || true)"
+[[ -n "$NOTIFY" ]] || exit 0
+WHEN="$(section Notify | sed -nE 's/^- \*\*When:\*\*[[:space:]]*(.*)$/\1/p' | head -1)"
+WHEN="${WHEN:-failure, questions, stuck}"
+
+STATUS="failure"
+if [[ "$RUN_RC" -eq 0 && -f "$REPORT" ]]; then
+  # `# Night <date> — <status>`: the last word of the first line.
+  STATUS="$(head -1 "$REPORT" | awk '{print $NF}')"
+  [[ "$STATUS" =~ ^(pr|questions|stuck|quiet)$ ]] || STATUS="questions"   # unreadable → someone should look
+fi
+grep -qwE "always|$STATUS" <<<"$WHEN" || exit 0
+
+SUBJECT="[nightly] $(basename "$REPO") $(date +%F) — $STATUS"
+[[ "$RUN_RC" -ne 0 ]] && SUBJECT="$SUBJECT (rc=$RUN_RC)"
+{ [[ -f "$REPORT" ]] && cat "$REPORT" || echo "No report: the run exited with $RUN_RC. Logs: $LOG_DIR/$STAMP.*"; } \
+  | NIGHTLY_SUBJECT="$SUBJECT" NIGHTLY_STATUS="$STATUS" NIGHTLY_RC="$RUN_RC" \
+    NIGHTLY_REPORT="$REPORT" NIGHTLY_LOGS="$LOG_DIR/$STAMP" \
+    timeout 5m bash -c "$NOTIFY" >> "$LOG_DIR/$STAMP.notify.log" 2>&1 \
+  || echo "nightly-backlog: notify failed — report still at $REPORT" >&2

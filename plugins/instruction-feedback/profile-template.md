@@ -1,16 +1,26 @@
-# Instruction feedback map
+# Instruction feedback profile
 
 <!--
-Where each kind of lesson belongs in this project. Save as
-`.claude/instruction-feedback.md` and check it in. The body (everything below the
-title, minus this comment) is shown to Claude verbatim whenever a message reads as
-a correction.
-
-`**Markers:**` (optional) adds an extended regex to the built-in English markers —
-for corrections in the project's own language. Measure it on real transcripts.
+Profile for the instruction-feedback plugin. Save as `.claude/instruction-feedback.md`
+and check it in. Every section is optional: a missing one keeps the built-in
+behaviour. Keep the section names — the hook reads them.
 -->
 
-- **Markers:** `<e.g. why on earth|take it out>`
+## Markers
+
+<!-- Extended regexes, one per backticked bullet, matched case-insensitively.
+     Mode: extend (default) adds them to the built-in English markers; replace drops those.
+     Measure them on real transcripts — a marker that fires every turn is noise. -->
+
+- **Mode:** extend
+- `<e.g. why on earth|take it out>`
+
+## Reply
+
+<!-- What Claude is told when a marker fires. Default: end the reply with one line —
+     a proposed amendment (file + wording) or "one-off, no rule follows". -->
+
+## Map
 
 - code convention, layer, type → <path to the code rules file>
 - how a test is written or where it lives → <path to the testing rules file>

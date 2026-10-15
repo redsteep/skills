@@ -12,16 +12,20 @@ Claude proposes; it never amends instructions silently.
 
 The markers are deliberately narrow so the hook doesn't fire every turn. Widen
 them from real transcripts, not by guessing.
-The built-in ones are English; a project writing in another language adds its own
-with a `- **Markers:** \`<regex>\`` line in its profile (below).
 
-## Where lessons go
+## The project profile
 
-Each project says where each kind of lesson belongs in a checked-in
-`.claude/instruction-feedback.md`, shown to Claude verbatim (see
-[`profile-template.md`](profile-template.md)). Without one, the map is generic:
-project conventions → the instructions file the project loads; process and
-preferences → memory.
+A checked-in `.claude/instruction-feedback.md` overrides any of the hook's three
+parts — start from [`profile-template.md`](profile-template.md):
+
+| Section | Overrides | Default |
+|---|---|---|
+| `## Markers` | when the hook fires — regexes, one per bullet; `- **Mode:** replace` drops the built-in ones, otherwise they are extended | English markers only |
+| `## Reply` | what Claude is told to do, in the project's language | one line: an amendment (file + wording) or "one-off, no rule follows" |
+| `## Map` | where each kind of lesson belongs | project conventions → the instructions file; process and preferences → memory |
+
+A section left out keeps its default. A profile from 0.1 (a plain list, no
+sections) is still read as the map.
 
 ## Install
 
