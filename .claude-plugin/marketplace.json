@@ -14,6 +14,12 @@
       "category": "workflow"
     },
     {
+      "name": "nightly-backlog",
+      "source": "./plugins/nightly-backlog",
+      "description": "Unattended night run: takes one GitHub issue labelled nightly:ok to a draft PR, and proposes labels for a few unlabelled ones.",
+      "category": "automation"
+    },
+    {
       "name": "pre-pr-review",
       "source": "./plugins/pre-pr-review",
       "description": "Gated review of a finished feature branch before the PR: surface vs the spec, E2E, architecture, test strategy, mutation testing, refactor. Blocks `gh pr create` until the review has run.",

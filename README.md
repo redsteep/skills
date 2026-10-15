@@ -13,6 +13,7 @@ so a project picks up only the skills — and hooks — it enables.
 
 | Plugin | What it does |
 |---|---|
+| [nightly-backlog](plugins/nightly-backlog) | Unattended night run — one `nightly:ok` GitHub issue to a draft PR, labels proposed for a few more |
 | [pre-pr-review](plugins/pre-pr-review) | Gated review of a finished branch — surface, E2E, architecture, tests, mutation testing — before `gh pr create` is allowed |
 | [review-mode](plugins/review-mode) | While you read a PR, Claude answers and runs things but queues change requests instead of editing |
 

@@ -1,0 +1,12 @@
+{
+  "name": "nightly-backlog",
+  "version": "0.1.0",
+  "description": "Unattended night run: takes one GitHub issue labelled nightly:ok to a draft PR, and proposes labels for a few unlabelled ones. A runner script for a timer, with a hard tool deny list.",
+  "author": {
+    "name": "Stanislav Krasnoyarov",
+    "url": "https://github.com/redsteep"
+  },
+  "repository": "https://github.com/redsteep/skills",
+  "license": "MIT",
+  "keywords": ["automation", "tech-debt", "github-issues", "headless", "workflow"]
+}
