@@ -27,15 +27,17 @@ Traps:
 - <tests skipped unless a switch is set — the switch, and when the diff makes it necessary>
 - <commands that never return (watch mode) and their one-shot form>
 
-## Extra gates
+## Extensions
 
-### <name, e.g. Migrations> — when the diff touches `<paths>`
+<!-- Points: after-setup · after-surface · before-pr · pr-body · after-pr (see SKILL.md § Extension points).
+     Unattended: run (default) · draft · skip. -->
 
-```bash
-<commands to run>
-```
+### <point>: <name, e.g. after-setup: Migrations>
 
-**Gate:** <what output passes>
+- **When:** <paths in the diff, e.g. `migrations/**` — omit to always run>
+- **Do:** <commands, or the skill / doc to follow>
+- **Gate:** <what output passes>
+- **Unattended:** <omit for `run` | `draft` | `skip`>
 
 ## Contract
 
@@ -44,8 +46,9 @@ Traps:
 
 ## Guidelines
 
-- **Code rules:** <path>
-- **Testing rules:** <path>
+- **Code rules:** <path(s)>
+- **Testing rules:** <path(s)>
+- Rules may be path-scoped (`.claude/rules/*.md` with `paths:`): they load when a matching file is opened. List them here anyway — a reviewer reads what the profile names.
 - New rules proposed by reviewers go to: <those files / an issue / the user>
 
 ## E2E
@@ -75,6 +78,6 @@ Traps:
 
 ## PR
 
-- **Body carries:** <ticket link, skipped steps, mutation counts, extra-gate results>
+- **Body carries:** <ticket link, skipped steps, mutation counts, extension verdicts>
 - **Hand-over:** <how the app is left running for the user, ports to free afterwards>
 - **Never:** <e.g. `git add -A` because of symlinked env files>

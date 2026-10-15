@@ -13,7 +13,7 @@ You are reviewing whether a feature's tests sit at the right layers, test each c
 **Worktree:** {WORKTREE}
 **Project profile:** {PROFILE} — its **Guidelines** section names the testing-rules file.
 
-**The rules are the testing-rules file the profile names** — read it in full first; this prompt holds no copy of them. Its section on layers decides where each test belongs; every other section is a checklist for each test file. (No such file: use the test pyramid — the cheapest layer that exercises the behaviour through its public entry point — and say so in the report.)
+**The rules are the testing-rules file the profile names** — read it in full first; this prompt holds no copy of them. Open the test files before judging: that loads any path-scoped rules the project keeps for tests. Its section on layers decides where each test belongs; every other section is a checklist for each test file. (No such file: use the test pyramid — the cheapest layer that exercises the behaviour through its public entry point — and say so in the report.)
 
 **Done when** every public entry point in the source files is mapped to the tests that cover it (or marked uncovered), and every test file has been checked against every section of the rules. A rule that is not in the rules file but you believe should be goes under "Missing rules", not under issues.
 

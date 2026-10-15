@@ -11,7 +11,7 @@ git -C {WORKTREE} diff --stat {BASE_SHA}..{HEAD_SHA}
 git -C {WORKTREE} diff {BASE_SHA}..{HEAD_SHA}
 ```
 
-**The rules are the code-rules file the profile names** — read it in full first; this prompt holds no copy of them. (No such file: use the conventions the repo's `CLAUDE.md` / `CONTRIBUTING.md` state, and say so in the report.) Then open each changed production file in full — a diff hunk hides the layer a line lives in. Test files are the test-strategy reviewer's.
+**The rules are the code-rules file the profile names** — read it in full first; this prompt holds no copy of them. (No such file: use the conventions the repo's `CLAUDE.md` / `CONTRIBUTING.md` state, and say so in the report.) Then open each changed production file in full — a diff hunk hides the layer a line lives in, and opening it loads any path-scoped rules the project keeps for that part of the tree; they weigh the same as the file the profile names. Test files are the test-strategy reviewer's.
 
 **Done when** every changed production file has been checked against every section of the rules that applies to its layer (per the profile's map; without one, judge the layer from the path), and each rule either passes or appears as a violation below. A rule that is not in the rules file but you believe should be goes under "Missing rules", not under violations.
 

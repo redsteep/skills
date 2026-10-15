@@ -5,7 +5,7 @@ Every step ends on a gate that passes on output Claude saw, not on judgement.
 
 | Step | Who | Gate |
 |---|---|---|
-| 0. Setup | main agent | targeted tests green on HEAD; extra gates (e.g. migrations) pass |
+| 0. Setup | main agent | targeted tests green on HEAD |
 | 1. Surface vs the spec's contract | subagent | no name in the diff the spec didn't declare — delete it or amend the contract out loud |
 | 2. E2E in the browser | subagent | every flow works and matches the spec / visual reference |
 | 3. Architecture | subagent | no Critical / Important violations of the project's code rules |
@@ -24,9 +24,17 @@ docs-only changes, trivial fixes and dependency bumps — named in the PR body.
 
 The skill is generic; each repository supplies its specifics in a checked-in
 `.claude/pre-pr-review.md`: which paths are production code, the targeted test
-command and its traps, extra gates, where specs and rules live, how to bring the
+command and its traps, where specs and rules live, how to bring the
 app up for E2E, project-shaped hints for the reviewers, final checks, PR
 conventions. Start from [`profile-template.md`](skills/pre-pr-review/profile-template.md).
+
+### Extension points
+
+A project attaches its own steps at five named points — `after-setup`,
+`after-surface`, `before-pr`, `pr-body`, `after-pr` — each with a path trigger, a
+gate, and what an unattended run does with it (`run`, `draft`: open the PR as a
+draft naming the step, or `skip`). A migration round-trip goes at `after-setup`; a
+slow check against production data at `before-pr`, with `Unattended: draft`.
 
 Without a profile, the skill infers what it can from the repo, says what it
 guessed, and offers to write the profile.

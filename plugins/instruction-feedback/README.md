@@ -12,6 +12,8 @@ Claude proposes; it never amends instructions silently.
 
 The markers are deliberately narrow so the hook doesn't fire every turn. Widen
 them from real transcripts, not by guessing.
+The built-in ones are English; a project writing in another language adds its own
+with a `- **Markers:** \`<regex>\`` line in its profile (below).
 
 ## Where lessons go
 

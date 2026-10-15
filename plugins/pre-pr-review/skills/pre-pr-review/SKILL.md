@@ -17,13 +17,13 @@ The reviewer prompts this skill dispatches sit next to this file: `surface-revie
 
 ## The project profile
 
-Everything project-specific — which paths are production code, how to run a targeted test, which extra gates exist, where the rules live, how to bring the app up — comes from the **project profile**, `.claude/pre-pr-review.md` in the repository. Its sections are named; this skill refers to them as **Profile → Section**:
+Everything project-specific — which paths are production code, how to run a targeted test, which steps it attaches at the extension points, where the rules live, how to bring the app up — comes from the **project profile**, `.claude/pre-pr-review.md` in the repository. Its sections are named; this skill refers to them as **Profile → Section**:
 
 | Section | Holds |
 |---|---|
 | Layout | source paths, test paths, how to find the tests covering a unit |
 | Targeted tests | the command per package, and the traps that make a run look green when it is not |
-| Extra gates | gates triggered by paths in the diff (migrations, generated code, schema files…) |
+| Extensions | the project's own steps, attached to the skill's extension points (migrations, generated code, a check against production data…) |
 | Contract | where specs live and which section of a spec is the contract |
 | Guidelines | the code-rules file, the testing-rules file, and where new rules go |
 | E2E | when it applies, how to start the app, auth, tools, visual reference, where screenshots go |
@@ -32,6 +32,27 @@ Everything project-specific — which paths are production code, how to run a ta
 | PR | how the PR is opened, what its body carries, what to hand over after |
 
 **Read the profile in full before step 0.** A section the profile leaves out falls back to the generic behaviour described below.
+
+## Extension points
+
+A project adds its own steps without editing this skill: each entry in **Profile → Extensions** is attached to one named point, and runs there.
+
+| Point | Runs | Typical use |
+|---|---|---|
+| `after-setup` | end of step 0, on the baseline | migrations round-trip, schema or codegen checks |
+| `after-surface` | end of step 1, on the slimmed branch | checks that only make sense once unlisted surface is gone |
+| `before-pr` | end of step 7, on the code that ships | slow or expensive checks — a regen against production data, a long build |
+| `pr-body` | step 8, while writing the body | what the project's PRs must carry |
+| `after-pr` | after the PR is open | hand-over, cleanup |
+
+Each entry has:
+
+- **When** — a path list matched against the diff; omitted, the entry always runs. Intersect mechanically — a list, not a judgement made once per branch ("this change can't move the numbers" is what the step is for).
+- **Do** — the commands, or the runbook (a skill, a doc) to follow.
+- **Gate** — what output passes. An extension's gate is a gate of this review like any other: it passes on output you saw, and a failure stops the review.
+- **Unattended** — what a run nobody is watching (a headless or scheduled session) does with it: `run` (default), `draft` — do not run it; open the PR as a draft that names it as the open gate (step 8), or `skip` — do not run it; say so in the PR body.
+
+Several entries at one point run in the order the profile lists them.
 
 **No profile?** Infer what you can from the repo (`package.json`, `pyproject.toml`, `Makefile`, CI workflows, `CONTRIBUTING.md`, `CLAUDE.md`), tell the user what you inferred, and offer to write it as `.claude/pre-pr-review.md` from `profile-template.md` in this skill's directory — a profile is checked in so the next review does not re-infer it. Do not run the review on guessed commands without saying they are guessed.
 
@@ -61,9 +82,9 @@ Run in the foreground; the full suite belongs to CI.
 
 **Gate:** the targeted command runs green on HEAD. A broken baseline stops the review.
 
-### Extra gates
+### Extension point: `after-setup`
 
-For every entry in **Profile → Extra gates** whose paths appear in the diff, run its commands now and hold it to its own gate. Reading a migration or a schema change is not running it.
+Run the triggered `after-setup` entries now and hold each to its gate. Reading a migration or a schema change is not running it.
 
 ## Step 1: Surface vs declared contract — `general-purpose` subagent
 
@@ -80,6 +101,8 @@ Act on the report **in this step**, not in step 7: delete what goes, amend the c
 An amendment is said out loud, never written silently: "I'm adding X to the contract because Y". A contract edited quietly during implementation is a record kept after the fact, not a contract.
 
 **Gate:** zero unlisted names left in the diff, and the targeted command green after the removals.
+
+Then run the triggered `after-surface` entries.
 
 ## Steps 2-4: one dispatch — three subagents at once
 
@@ -142,6 +165,8 @@ Apply findings from step 3, then read every SOURCE_FILE yourself against the cod
 
 **Gate:** targeted tests green, and every command in **Profile → Final checks** clean over the branch — they are what CI runs (generic: the repo's pre-commit / lint / type-check over the changed files). Regenerated artifacts the profile names are committed in the branch.
 
+Then run the triggered `before-pr` entries — last, because they check the code that ships, not code steps 5–7 were still changing.
+
 ## Step 8: Open the PR — Main Agent
 
 All gates above passed with evidence → commit the step 5–7 changes (logical commits, not one per mutation), push, and open the PR with the prefix the hook expects:
@@ -150,7 +175,11 @@ All gates above passed with evidence → commit the step 5–7 changes (logical 
 cd <worktree> && REVIEWED=1 gh pr create --title "..." --body "..."
 ```
 
-`git add` explicit paths, never `-A` — nothing stray (local env files, scratch output) rides into the PR. Put a short review summary in the PR body: the ticket or issue, steps skipped and why (e.g. "no UI → step 2 skipped"), mutation counts (killed / covered / equivalent / deferred), extra-gate results — plus anything **Profile → PR** asks for.
+`git add` explicit paths, never `-A` — nothing stray (local env files, scratch output) rides into the PR. Put a short review summary in the PR body: the ticket or issue, steps skipped and why (e.g. "no UI → step 2 skipped"), mutation counts (killed / covered / equivalent / deferred), each extension's verdict — plus anything **Profile → PR** and the `pr-body` entries ask for.
+
+### An extension marked `Unattended: draft` → a draft PR, not a held branch
+
+When an unattended run reaches step 8 with such an extension triggered and not run, it opens the PR with `--draft`. The body names it in as many words — which extension, which paths triggered it, what was not run — and undrafting requires it, clean. A draft cannot be merged, so the gate has moved from before the PR to before the merge, not away. This is the only gate that may stand open at PR time, and only as a draft: a finished branch held without a PR leaves its reports unread and blocks whoever comes next.
 
 ### Hand the app over — whenever step 2 ran
 
@@ -159,6 +188,8 @@ A passing E2E subagent is not the user seeing it. Right after the PR is open, le
 - Run it in the background so it outlives the turn; report the URLs and ports.
 - Name the screens and flows the branch changed, and anything it cannot show (a state that needs production data, a flow behind a feature flag). "The app is up" without a route to click is not a hand-off.
 - Leave it running until the user says they are done, then stop the **processes** — a dev server outlives its worktree and holds the port. Prove it is gone (`lsof -nP -iTCP -sTCP:LISTEN` on the ports you used).
+
+Then run the triggered `after-pr` entries.
 
 ## Re-verification
 
@@ -173,6 +204,7 @@ A passing E2E subagent is not the user seeing it. Right after the PR is open, le
 | "Architecture looks fine from the diff" | Read the files the diff touches |
 | "Step 4 already covered the tests" | Step 5 measures it — watch what survives |
 | "Nothing to refactor" | Decide after reading every SOURCE_FILE |
+| "This change can't trigger that extension" | Its path list decides, not the reviewer |
 | "Green" (with skips) | Skipped tests are not passing ones — count them |
 | "It's an internal helper, not surface" | Step 1 counts it — unlisted means deleted or justified |
 

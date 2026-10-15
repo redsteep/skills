@@ -1,6 +1,6 @@
 {
   "name": "instruction-feedback",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "When you correct Claude's implementation (\"why is this here?\", \"no need\", \"remove it\"), it fixes the code and proposes the one-line instruction change that would have prevented it — so the same correction isn't needed twice.",
   "author": {
     "name": "Stanislav Krasnoyarov",
