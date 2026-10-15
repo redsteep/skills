@@ -13,6 +13,20 @@ Claude proposes; it never amends instructions silently.
 The markers are deliberately narrow so the hook doesn't fire every turn. Widen
 them from real transcripts, not by guessing.
 
+## Proving an amendment works
+
+A rule can read well and change nothing. With an amendment, the note also has Claude
+**offer** the `verify-amendment` skill, which replays the past in throwaway worktrees with
+the amendment overlaid:
+
+1. **Reviewer** — on the commit that made the mistake, the review must now flag it in the
+   code and (if it was planned there) in the spec; on the fixed commit it must stay quiet.
+2. **Spec writer** (architectural lessons only) — three runs design the feature again from
+   the pre-feature commit with a scripted user who leaves architecture to the agent; a grader
+   checks each spec against binary checks taken from the fixed commit.
+
+Pass/fail only, k/3 for the spec runs. It runs on your yes, not by default.
+
 ## The project profile
 
 A checked-in `.claude/instruction-feedback.md` overrides any of the hook's three

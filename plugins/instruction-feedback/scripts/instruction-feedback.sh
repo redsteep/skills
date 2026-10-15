@@ -59,6 +59,8 @@ grep -qiE "$markers" <<<"$prompt" || exit 0
 
 note="$reply
 
+With an amendment, offer (don't run) to test it with the verify-amendment skill: subagents replay the review on the commit that made the mistake — the reviewer must now flag it in that commit's code and spec, and stay quiet on the fixed commit — and, when the lesson is architectural, regenerate the spec from the pre-feature commit, which must now plan the fixed architecture. Name the commits and the subagent count in the offer.
+
 Where to look, by kind of lesson:
 $map"
 

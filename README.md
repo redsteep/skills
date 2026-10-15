@@ -13,7 +13,7 @@ so a project picks up only the skills — and hooks — it enables.
 
 | Plugin | What it does |
 |---|---|
-| [instruction-feedback](plugins/instruction-feedback) | A correction to the implementation ends with a proposed one-line amendment to the instructions, so it isn't needed twice |
+| [instruction-feedback](plugins/instruction-feedback) | A correction to the implementation ends with a proposed one-line amendment to the instructions, and an offer to prove it by replaying the reviewer and spec writer on the commits that made the mistake |
 | [nightly-backlog](plugins/nightly-backlog) | Unattended night run — one allowed backlog item (GitHub issues by default, any store via the profile) to a draft PR, markings proposed for a few more |
 | [pr-when-done](plugins/pr-when-done) | A clean worktree ahead of the default branch with no PR gets one nudge per commit to review and open it |
 | [pre-pr-review](plugins/pre-pr-review) | Gated review of a finished branch — surface, E2E, architecture, tests, mutation testing — before `gh pr create` is allowed |
