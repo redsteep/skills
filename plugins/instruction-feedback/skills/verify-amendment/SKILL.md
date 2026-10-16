@@ -1,6 +1,6 @@
 ---
 name: verify-amendment
-description: Test a proposed instruction amendment by replaying the past — the reviewer must now catch the mistake on the commit that made it, and (for an architectural lesson) spec writing from the pre-feature commit must now land on the right architecture. Use after proposing a rule from a correction, before or right after adding it.
+description: Test a proposed architectural guideline amendment by replaying the past — the reviewer must now catch the mistake on the commit that made it, and spec writing from the pre-feature commit must now land on the right architecture. Use only for an amendment that changes an architectural guideline, after proposing it.
 ---
 
 # Verify an instruction amendment
@@ -8,6 +8,10 @@ description: Test a proposed instruction amendment by replaying the past — the
 A rule that reads well can still change nothing. The mistake it answers already happened, in
 commits that still exist, so the test is a replay: put the amended instructions next to the old
 code and see whether the agents that missed it now don't.
+
+**Architectural guideline changes only.** Where things live: which class owns which dependency,
+which layer or phase does what, which entity holds a field. A rule about tests, process, review
+procedure or wording is not offered a replay.
 
 **Propose first, run on a yes.** The replay costs subagents (3–6, see "Cost"). End the
 amendment line with an offer that names the checks you'd run and the commits; start only when

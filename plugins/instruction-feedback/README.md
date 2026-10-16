@@ -15,8 +15,8 @@ them from real transcripts, not by guessing.
 
 ## Proving an amendment works
 
-A rule can read well and change nothing. With an amendment, the note also has Claude
-**offer** the `verify-amendment` skill, which replays the past in throwaway worktrees with
+A rule can read well and change nothing. With an amendment that changes an architectural
+guideline (and only then), the note also has Claude **offer** the `verify-amendment` skill, which replays the past in throwaway worktrees with
 the amendment overlaid:
 
 1. **Reviewer** — on the commit that made the mistake, the review must now flag it in the
