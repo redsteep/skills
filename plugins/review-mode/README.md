@@ -16,13 +16,19 @@ Claude Code has no notion of a "mode", so this is a state file plus hooks:
 | Piece | Event | What it does |
 |---|---|---|
 | `enter-review-after-pr.sh` | `PostToolUse` (Bash) | A non-draft `gh pr create` that printed a PR URL turns the mode on for that worktree |
-| `deny-edits-in-review.sh` | `PreToolUse` (Edit/Write/NotebookEdit) | Denies edits to files inside the reviewed worktree; other worktrees are untouched |
-| `review-drift-check.sh` | `Stop` | Compares `git status` against the snapshot taken on entry, so an edit made through Bash is caught too |
-| `/review-mode` | command | `on [worktree]`, `done`, `status` |
+| `deny-edits-in-review.sh` | `PreToolUse` (Edit/Write/NotebookEdit) | Denies edits to files whose own worktree (resolved through git, not by path prefix) is under review; other worktrees — including ones nested inside the main checkout — are untouched |
+| `review-drift-check.sh` | `Stop` | Compares each reviewed worktree's `git status` against the snapshot taken on entry, so an edit made through Bash is caught too |
+| `/review-mode` | command | `on [worktree]`, `done [-b branch]`, `status` |
 
-State lives in the repo's git common dir (`.git/review-mode/`): never committed,
-no `.gitignore` entry needed, shared by all worktrees of the repo. Claude Code
-guards `.git/` against its edit tools, so requests are queued through
+State lives in the repo's git common dir, one directory per reviewed branch
+(`.git/review-mode/<branch>/marker.json` + `queue.md`; `/` in a branch name
+becomes `__`): never committed, no `.gitignore` entry needed, visible from every
+worktree. Several reviews can be on at once — one per worktree — without
+replacing each other or mixing their queues. `add` and `done` act on the review
+of the current worktree, else the only one that is on; with several on, pass
+`-b <branch>`. The default branch is never put under review.
+
+Claude Code guards `.git/` against its edit tools, so requests are queued through
 `review-mode.sh add "…"` — allowlist `Bash(*/review-mode/scripts/review-mode.sh:*)`
 to skip the prompt.
 

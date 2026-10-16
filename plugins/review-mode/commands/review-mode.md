@@ -10,11 +10,16 @@ to enter it for that worktree, or empty to enter it for the only linked worktree
 (the main checkout itself needs its path passed explicitly).
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/review-mode.sh" on [worktree]   # enter
-"${CLAUDE_PLUGIN_ROOT}/scripts/review-mode.sh" add "<line>"    # queue a request
-"${CLAUDE_PLUGIN_ROOT}/scripts/review-mode.sh" done            # leave, print the queue
-"${CLAUDE_PLUGIN_ROOT}/scripts/review-mode.sh" status
+"${CLAUDE_PLUGIN_ROOT}/scripts/review-mode.sh" on [worktree]             # enter
+"${CLAUDE_PLUGIN_ROOT}/scripts/review-mode.sh" add [-b branch] "<line>"  # queue a request
+"${CLAUDE_PLUGIN_ROOT}/scripts/review-mode.sh" done [-b branch]          # leave, print the queue
+"${CLAUDE_PLUGIN_ROOT}/scripts/review-mode.sh" status                    # every review that is on
 ```
+
+Each reviewed branch has its own marker and queue, so other sessions' reviews in
+other worktrees may be on at the same time. Without `-b`, `add` and `done` mean
+the review of the current worktree, else the only one that is on; when several
+are on, pass `-b <branch>` — the hooks' messages name the branch.
 
 Entering is normally automatic — a `PostToolUse` hook turns the mode on the
 moment a non-draft `gh pr create` succeeds. Use this command to enter it for a PR
@@ -34,7 +39,9 @@ opened earlier, to check the state, or to leave.
 - **Edits are denied by a hook** inside the reviewed worktree, and a `Stop` hook
   compares the tree against the snapshot taken on entry — so an edit made through
   Bash is reported even though the deny hook never saw it.
-- Other worktrees are unaffected: the marker names one branch.
+- Other worktrees are unaffected: a marker names one worktree, and a file is
+  matched to its own worktree through git, so worktrees nested inside the main
+  checkout are not caught by a review of the main checkout.
 
 ## Leaving
 

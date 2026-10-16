@@ -34,6 +34,6 @@ out=$("$here/review-mode.sh" on ${wt:+"$wt"} 2>&1) || exit 0
 jq -n --arg o "$out" --arg s "$(cd "$here" && pwd)/review-mode.sh" '{
   hookSpecificOutput: {
     hookEventName: "PostToolUse",
-    additionalContext: ("Review mode turned on automatically after the PR was created.\n\($o)\n\nProtocol while it is on: answer the user'"'"'s questions at once and in full — runs are allowed (tests, queries, the running app). Do NOT carry out a change request: queue it with `\"\($s)\" add \"<the user'"'"'s wording> — path/file:line — <what you will do>\"` and confirm in one line. Edits to the reviewed worktree are denied by a hook. Leave only on the user'"'"'s go-ahead: /review-mode done, then apply the whole queue in one iteration.")
+    additionalContext: ("Review mode turned on automatically after the PR was created.\n\($o)\n\nProtocol while it is on: answer the user'"'"'s questions at once and in full — runs are allowed (tests, queries, the running app). Do NOT carry out a change request: queue it with `\"\($s)\" add -b <branch> \"<the user'"'"'s wording> — path/file:line — <what you will do>\"` and confirm in one line. Edits to the reviewed worktree are denied by a hook. Leave only on the user'"'"'s go-ahead: /review-mode done (with -b <branch> when several reviews are on), then apply the whole queue in one iteration.")
   }
 }'
