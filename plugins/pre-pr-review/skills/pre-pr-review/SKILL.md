@@ -133,6 +133,8 @@ Read `architecture-reviewer.md`, fill `{FEATURE_DESCRIPTION}`, `{BASE_SHA}`, `{H
 
 Read `test-coverage-reviewer.md`, fill `{FEATURE_DESCRIPTION}`, `{SOURCE_FILES}`, `{TEST_FILES}`, `{WORKTREE}`, `{PROFILE}`, dispatch a `general-purpose` agent.
 
+Step 4 owns the judgement on tests — the right layer, each contract once, the testing rules. Step 5 owns the mechanical side — which changed lines no test reaches, which values no assertion pins. They run side by side and may name the same gap; step 6 fixes it once.
+
 ### Joint gate — all three reports in hand
 
 A partial dispatch is not a pass: wait for all three, then check each criterion.
@@ -167,7 +169,9 @@ Read `mutation-tester.md`, fill `{FEATURE_DESCRIPTION}`, `{SOURCE_FILES}`, `{TES
 
 The subagent is the mutation engine (not mutmut or stryker): it applies the mutations the suite is most likely to miss, one at a time, and for every survivor writes a test proven **red** on the mutant and **green** on the original. The discipline rules in `mutation-tester.md` are the protocol; if one slips, restart the step.
 
-**Gate:** every survivor has a killing test, or is justified as equivalent / deferred with a reason; `git diff` shows no mutation residue. **Save findings for step 6.**
+The subagent triages before it mutates: changed lines no test reaches become gaps with a test written straight away (no mutant needed), lines a test already pins are skipped, and only the rest are mutated — up to about 10. On two measured branches 78% and 87% of mutants died to existing tests; those runs are what the triage removes.
+
+**Gate:** every gap and every survivor has a test proven red/green, or is justified as equivalent / deferred with a reason; `git diff` shows no mutation residue. **Save findings for step 6.**
 
 ## Step 6: Refactor tests — Main Agent
 

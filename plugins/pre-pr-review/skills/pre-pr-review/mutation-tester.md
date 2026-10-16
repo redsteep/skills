@@ -24,11 +24,33 @@ mutation costs a full targeted run.
 
 Output goes to a file via redirect, then `tail` it — a pipe loses everything if the run is killed. Run in the foreground. A mutation in a path only a skipped-by-default test exercises needs that test's switch on, or the killing test is skipped and the mutant "survives" for the wrong reason.
 
-**Done when** every candidate in your list is logged as killed, survived → covered, equivalent, or deferred, and `git -C {WORKTREE} diff` shows only the tests you added.
+**Done when** every changed line with an observable effect is triaged (unreached → gap covered, pinned, or a candidate), every candidate is logged as killed, survived → covered, equivalent, or deferred, and `git -C {WORKTREE} diff` shows only the tests you added.
+
+## Triage phase — read the tests before mutating
+
+Most mutants die to tests that already pin the value (on two measured branches, 78% and 87%), and
+each one costs an edit, a run and a revert. So first sort the changed lines by what the suite
+already does to them:
+
+1. **Which tests reach each changed line.** Use per-test coverage when the profile's **Targeted
+   tests** section gives a command for it (contexts per line); otherwise grep the test tree for the
+   unit and read the tests that call it.
+2. **Bucket every changed line with an observable effect:**
+
+| Bucket | Means | Do |
+|---|---|---|
+| **Unreached** — no test executes it | any mutant survives; mutating proves nothing | no mutant. Log as a **gap** and write the test now: it is proven red against the line deleted (or its branch forced), green on the original — the same red/green proof as a survivor |
+| **Reached, not pinned** — the tests that reach it assert status, presence, `len`, or a value far from the edge; or never take the branch's "nothing happens" side | the likely survivors | **these are the candidates** for the hypothesis phase |
+| **Pinned** — a reaching test asserts the exact value this line produces, on both sides of any boundary | the mutant dies | no mutant. Log as `pinned by <test>` |
+
+A line you cannot place is "reached, not pinned" — when in doubt, mutate.
+
+Step 4 (test strategy) runs beside you and judges layers and contracts; you own the mechanical
+side — reach and pinning. Step 6 merges both lists.
 
 ## Hypothesis phase
 
-Before touching code, list 6–12 candidate mutations, ranked by signal: mutations that change an **observable result** — a persisted entity, a status, a score, an emitted event or command, an API response, a rendered value. Skip logging, telemetry, type annotations, comments, pure renames, and null-guards whose removal crashes anyway.
+From the **reached, not pinned** lines only, list up to 10 candidate mutations, ranked by signal: mutations that change an **observable result** — a persisted entity, a status, a score, an emitted event or command, an API response, a rendered value. Skip logging, telemetry, type annotations, comments, pure renames, and null-guards whose removal crashes anyway.
 
 Families that generally pay off (the profile adds this codebase's own):
 
@@ -50,7 +72,7 @@ Families that generally pay off (the profile adds this codebase's own):
 For each candidate, in order:
 
 1. **Apply** the mutation with one Edit — one logical change.
-2. **Run** the targeted command.
+2. **Run** the tests that reach the mutated line (from the triage's coverage contexts), or the targeted command when there are none.
 3. **Classify:**
    - **Killed** (≥1 test red) → revert, log `killed by <test>`.
    - **Survived** (all green) →
@@ -84,6 +106,7 @@ For each candidate, in order:
 
 ### Summary
 
+- Triaged N changed lines: unreached → gap covered N; pinned (no mutant) N; candidates N.
 - Attempted N; killed by existing tests N; survived → covered N; equivalent N; deferred N.
 - New tests: file → test names.
 - Deferred: each with its reason.
