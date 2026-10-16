@@ -29,10 +29,16 @@ enforced** — a principle a tool checks on every commit does not need a reviewe
 
 ## 0 (mode `proposal`). Is the "as it is now" picture true?
 
-First, because everything after it is worthless if the picture is wrong. Run the
-profile's containment command and compare node by node with the spec's current
-model. A tree drawn from memory instead of from the code is the finding that
-matters most — report the real shape and stop.
+First, because a design derived from a wrong picture is wrong in ways its own
+text cannot show. Run the profile's containment command and compare node by node
+with the spec's current model. A tree drawn from memory instead of from the code
+is the finding that matters most — report it first, with the real shape.
+
+Then keep going, but judge the design against the code as it really is, not the
+spec's picture. The most expensive placement errors usually sit exactly where the
+picture is wrong: a new mechanism beside one the author did not know existed, a
+rule hung on state that the real flow never reads. Stopping at the picture would
+hand those back as "fix the background section" and lose them.
 
 Open each node's docstring or comment: the ownership argument is often already
 written there, so a spec that contradicts it is wrong or owes a reason.

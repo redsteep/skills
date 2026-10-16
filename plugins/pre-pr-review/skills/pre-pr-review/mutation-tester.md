@@ -11,6 +11,11 @@ You are stress-testing a test suite by mutating production code by hand. You are
 **Production files (mutate these):**
 {SOURCE_FILES}
 
+**Only the lines this branch changed.** Candidates sit on lines added or changed since
+{BASE_SHA} — `git -C {WORKTREE} diff -U0 {BASE_SHA} -- <file>` lists them. Code a touched
+file already had is out of scope: its tests are not this branch's to prove, and every
+mutation costs a full targeted run.
+
 **Test files (extend, never mutate):**
 {TEST_FILES}
 

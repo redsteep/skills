@@ -106,7 +106,7 @@ Then run the triggered `after-surface` entries.
 
 ## Steps 2-4: one dispatch — three subagents at once
 
-Nothing connects them: step 2 feeds nothing, step 3 feeds step 7, step 4 feeds step 6. Send all three in a single message so they run concurrently, after step 1 has slimmed the branch and before step 5, which must have the worktree to itself.
+Nothing connects them: step 2 feeds nothing, step 3 feeds step 7, step 4 feeds step 6. Send all three in a single message so they run concurrently, after step 1 has slimmed the branch — and step 5 in the same message, in its own worktree (see step 5). E2E is the long pole of this block; mutation waiting for it doubles the wall time for nothing.
 
 Start the app before dispatching — step 2 needs a URL to open. Steps 3 and 4 only read.
 
@@ -147,7 +147,23 @@ The reviewers check against the rules files in **Profile → Guidelines** — th
 
 ## Step 5: Manual mutation testing — subagent
 
-Read `mutation-tester.md`, fill `{FEATURE_DESCRIPTION}`, `{SOURCE_FILES}`, `{TEST_FILES}`, `{TARGETED_TEST_COMMAND}`, `{WORKTREE}`, `{PROFILE}`, dispatch a `general-purpose` agent. Steps 5 and 6 both edit the worktree, so nothing else runs there while step 5 is in flight.
+Mutation edits production code, and steps 2–4 read the feature's worktree — the E2E app serves from it. So step 5 runs in **a second worktree at the same commit**, dispatched together with steps 2–4:
+
+```bash
+git -C <worktree> worktree add --detach <worktree>-mutation HEAD
+```
+
+prepared the way **Profile → Layout** says a new worktree is (env files, package installs). Fill `{WORKTREE}` with that path. When the subagent is done, bring its tests back and drop the copy:
+
+```bash
+git -C <worktree>-mutation diff HEAD > <scratch>/mutation.patch   # tests only — the gate checks no residue
+git -C <worktree> apply <scratch>/mutation.patch
+git -C <worktree> worktree remove --force <worktree>-mutation
+```
+
+then run the targeted command in the feature's worktree — the tests must pass there, not only in the copy. If a second worktree cannot be prepared (the profile says how, or it fails), run step 5 after the joint gate in the feature's worktree, alone.
+
+Read `mutation-tester.md`, fill `{FEATURE_DESCRIPTION}`, `{SOURCE_FILES}`, `{TEST_FILES}`, `{TARGETED_TEST_COMMAND}` (pointed at the copy), `{BASE_SHA}`, `{WORKTREE}`, `{PROFILE}`, dispatch a `general-purpose` agent. Step 6 starts only after the patch is applied — both write tests.
 
 The subagent is the mutation engine (not mutmut or stryker): it applies the mutations the suite is most likely to miss, one at a time, and for every survivor writes a test proven **red** on the mutant and **green** on the original. The discipline rules in `mutation-tester.md` are the protocol; if one slips, restart the step.
 
@@ -181,8 +197,39 @@ cd <worktree> && REVIEWED=1 gh pr create --title "..." --body "..."
 
 A re-review round (after a review iteration's queued fixes landed) ends the same way except
 for the last command: commit, push, and append this round's summary to the PR body with
-`gh pr edit --body` — no `gh pr create`. Then hand the branch back to review mode
-(`review-mode.sh on <worktree>`) when that plugin is enabled.
+`gh pr edit --body` — no `gh pr create`. End every summary, first round included, with
+`Reviewed at <HEAD_SHA>`: the next round starts from it. Then hand the branch back to review
+mode (`review-mode.sh on <worktree>`) when that plugin is enabled.
+
+## Re-review rounds — review what the round changed
+
+The first round reviews the branch. A later round reviews the **round's diff**: from the
+`Reviewed at` SHA in the PR body (ROUND_BASE) to HEAD. Everything outside it was reviewed
+and has not moved; re-running a step on it pays the step's full cost to re-confirm a
+verdict already on record — and the browser and mutation steps are most of what a round
+costs.
+
+Build ROUND_SOURCE_FILES and ROUND_TEST_FILES from `git diff ROUND_BASE..HEAD` as step 0
+does for the branch. Then each step runs only when its trigger is in the round's diff, over
+that diff:
+
+| Step | Runs when the round's diff… | Scope |
+|---|---|---|
+| 0 | always | targeted command over the branch's TEST_FILES — the round can break old tests |
+| 1 Surface | adds or renames production names | the round's new names vs the contract |
+| 2 E2E | meets step 2's own trigger (user-visible files, a response the UI renders) | the flows those files drive |
+| 3 Architecture | touches ROUND_SOURCE_FILES | `{BASE_SHA}` = ROUND_BASE |
+| 4 Test strategy | touches ROUND_SOURCE_FILES or ROUND_TEST_FILES | the round's files |
+| 5 Mutation | touches ROUND_SOURCE_FILES | `{BASE_SHA}` = ROUND_BASE, so only the round's lines |
+| 6–7 | always | the round's files |
+| Extensions | their **When** list matches the round's diff | as defined |
+
+A test-only round is steps 0, 4 and 6. Name every skipped step and its reason in the
+round's summary, as step 8 does.
+
+**Back to the whole branch** when the round changes the public API surface (endpoint,
+response shape, generated types) or a shared module many files depend on, or when the PR
+body has no `Reviewed at` line — the same bar as Re-verification below.
 
 ### An extension marked `Unattended: draft` → a draft PR, not a held branch
 
@@ -218,5 +265,5 @@ Then run the triggered `after-pr` entries.
 ## Integration
 
 **Called after:** implementation is done — a plan executed by agents or a hand-built feature branch.
-**Called again:** after each review iteration's queued fixes are applied — a whole-branch round that ends in "The PR already exists".
+**Called again:** after each review iteration's queued fixes are applied — a round over what the iteration changed ("Re-review rounds"), ending in "The PR already exists".
 **Followed by:** review mode, if the `review-mode` plugin is enabled — it turns on automatically after `gh pr create`.
