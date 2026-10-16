@@ -59,7 +59,10 @@ off|done)
   n=$(grep -c '^- \[ \]' "$queue" 2>/dev/null) || true
   [[ "$n" =~ ^[0-9]+$ ]] || n=0
   echo "review mode OFF — $branch; $n item(s) queued in $queue"
-  [[ "$n" -gt 0 ]] && grep '^- \[ \]' "$queue"
+  if [[ "$n" -gt 0 ]]; then
+    grep '^- \[ \]' "$queue"
+    echo "after applying: run pre-pr-review over the branch, then 'review-mode.sh on' for the next pass"
+  fi
   ;;
 status)
   if [[ -f "$marker" ]]; then jq -r '"ON — \(.branch) at \(.head[0:7]), since \(.started)\nworktree: \(.worktree)"' "$marker"

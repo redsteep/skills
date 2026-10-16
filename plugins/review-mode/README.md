@@ -44,3 +44,6 @@ Requires `bash`, `git`, `jq`, and `gh` for the automatic trigger.
 - For a PR opened earlier: `/review-mode on` (or `/review-mode on <worktree>`).
 - Ask anything; ask for changes — they queue.
 - `/review-mode done` — Claude prints the queue and applies it.
+- Then, with `pre-pr-review@redsteep` enabled, Claude runs another review round
+  over the branch, updates the PR and turns review mode back on — every
+  iteration of fixes is reviewed before you read it again.

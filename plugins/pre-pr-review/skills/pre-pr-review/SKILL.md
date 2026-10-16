@@ -177,6 +177,13 @@ cd <worktree> && REVIEWED=1 gh pr create --title "..." --body "..."
 
 `git add` explicit paths, never `-A` — nothing stray (local env files, scratch output) rides into the PR. Put a short review summary in the PR body: the ticket or issue, steps skipped and why (e.g. "no UI → step 2 skipped"), mutation counts (killed / covered / equivalent / deferred), each extension's verdict — plus anything **Profile → PR** and the `pr-body` entries ask for.
 
+### The PR already exists → update it
+
+A re-review round (after a review iteration's queued fixes landed) ends the same way except
+for the last command: commit, push, and append this round's summary to the PR body with
+`gh pr edit --body` — no `gh pr create`. Then hand the branch back to review mode
+(`review-mode.sh on <worktree>`) when that plugin is enabled.
+
 ### An extension marked `Unattended: draft` → a draft PR, not a held branch
 
 When an unattended run reaches step 8 with such an extension triggered and not run, it opens the PR with `--draft`. The body names it in as many words — which extension, which paths triggered it, what was not run — and undrafting requires it, clean. A draft cannot be merged, so the gate has moved from before the PR to before the merge, not away. This is the only gate that may stand open at PR time, and only as a draft: a finished branch held without a PR leaves its reports unread and blocks whoever comes next.
@@ -211,4 +218,5 @@ Then run the triggered `after-pr` entries.
 ## Integration
 
 **Called after:** implementation is done — a plan executed by agents or a hand-built feature branch.
+**Called again:** after each review iteration's queued fixes are applied — a whole-branch round that ends in "The PR already exists".
 **Followed by:** review mode, if the `review-mode` plugin is enabled — it turns on automatically after `gh pr create`.

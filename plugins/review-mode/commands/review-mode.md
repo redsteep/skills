@@ -41,5 +41,11 @@ opened earlier, to check the state, or to leave.
 Only on the user's explicit go-ahead. Then `done`, read the queue, and apply the
 whole list in one iteration — ordinary workflow, commits and all.
 
+**Then review the branch again before handing it back.** A queue of fixes is new
+code nobody has reviewed: when the `pre-pr-review` plugin is enabled, run its
+skill over the whole branch (it updates the open PR instead of creating one),
+then turn review mode back on with `on <worktree>` for the user's next pass.
+Skip the round only when every queued item was docs or wording, and say so.
+
 A marker whose worktree no longer exists is treated as stale and ignored, so a
 forgotten mode does not block edits forever.
