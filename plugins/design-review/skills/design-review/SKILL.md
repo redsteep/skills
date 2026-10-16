@@ -16,6 +16,14 @@ green gates, wrong placement. This is the adversary that contract needs.
 owner's call; whether every surface is declared is the subtraction's job; tests
 and style belong to later reviewers. Narrowing it is what makes it sharp.
 
+**A second pass, never a replacement.** An ordinary review — read the spec, read
+the code, say what is wrong — comes first and finds different things: measured on
+one spec, two unstructured reviewers each produced ~18 findings with four
+blocking arithmetic errors, and neither noticed that the proposed value object
+duplicated an existing one for that very stage. This skill found those three and
+none of the four. Run it after the ordinary review, not instead of it, and do not
+report "reviewed" on its output alone.
+
 **Not for:** a change with no spec. If the design fit in a chat message, it was
 small enough not to need this.
 

@@ -27,6 +27,17 @@ whether every surface is declared (a diff-vs-contract subtraction does that
 later) · tests · style · file size · anything the profile lists under **Already
 enforced** — a principle a tool checks on every commit does not need a reviewer.
 
+**Correctness is not yours to hunt — but it is yours to report.** Structure is the
+assignment; do not go looking for arithmetic. If the reading nonetheless puts it
+in front of you — a declared figure that will compute to zero, a filter that
+matches no rows, a sign that cannot be both — say it **first**, before any
+structural finding, under "Outside the tests" below. Such a finding outranks
+every one of the seven: a well-placed field computing the wrong number is still
+the wrong number. This paragraph exists because the first measured run of this
+skill produced nine structural findings and silently dropped two blocking
+arithmetic ones that an unstructured reviewer found in the same hour — not
+because they were forbidden, but because the report below had no row for them.
+
 ## 0 (mode `proposal`). Is the "as it is now" picture true?
 
 First, because a design derived from a wrong picture is wrong in ways its own
@@ -112,6 +123,16 @@ saying "I don't like it", and will rightly be ignored.
 
 **Yes** / **No** — what the code shows, with the command's output.
 
+### Outside the tests
+
+Anything the reading put in front of you that no test covers — a figure that will
+not compute, a condition that matches nothing, a contradiction between a formula
+and a mock-up. Omit the section when there is nothing. Each one:
+
+- **Spec line** — quoted
+- **What's wrong** — one sentence
+- **Evidence** — `file:line`, docstring, command output, or the arithmetic
+
 ### Findings
 
 - **Spec line** — quoted
@@ -122,6 +143,6 @@ saying "I don't like it", and will rightly be ignored.
 
 ### Verdict
 
-**Does the structure hold?** Yes / No — N findings by test: …
+**Does the structure hold?** Yes / No — N findings by test: … · M outside the tests.
 
 Your final message IS the report.

@@ -46,6 +46,27 @@ failures. A bundled extractor for Python dataclasses is at
 `scripts/containment.py`; for anything else, write an equivalent that prints a
 tree and name it in the profile.
 
+## Measured, once
+
+On the spec it was first run against, three arms on the same input:
+
+| | findings | blocking | the duplication axis |
+|---|---|---|---|
+| open brief | 18 | 4 | — |
+| open brief + profile | 17 | 4 | partly |
+| this skill | 9 | 3 | **3 findings nobody else produced** |
+
+Read it as what it is: the skill owns one axis — "this already exists in the
+codebase for this very purpose" — and two strong unstructured reviewers did not
+produce a single finding on it. It owns no other axis. Run it **after** an
+ordinary review, never instead of one.
+
+The same run exposed a flaw worth knowing about in any rubric-shaped reviewer:
+correctness was nowhere forbidden, yet both blocking arithmetic errors were
+dropped — because every finding had to carry a test number and a "where it
+belongs", and a figure that computes to zero has neither. The output schema
+filtered harder than the instructions. Hence the "Outside the tests" section.
+
 ## Calibrate before you trust it
 
 Point it at corrections you have already made, where the answer is known. On the
