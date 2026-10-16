@@ -1,6 +1,6 @@
 ---
 name: design-review
-description: Adversarial review of a proposed design against the code it lands in — seven named tests (value object vs entity, aggregate boundary, ubiquitous language, anti-corruption layer, translation between stages, OCP, LSP) read as a slice across every layer. Use right after a design spec is written or changed and before any code is written for it (mode `proposal`), and again on the implemented branch to see whether the shape stayed the promised one (mode `drift`).
+description: Adversarial review of where a design puts things — seven placement tests (value object vs entity, aggregate boundary, ubiquitous language, anti-corruption layer, translation between stages, OCP, LSP) read as a slice across every layer of the code it lands in. Use it whenever a design spec has just been written, edited or had its Delta amended, before the spec is committed and before any code is written for it — even when the user only says "commit the spec", "the delta looks done" or "let's start implementing", that is exactly the moment (mode `proposal`). Also use it when someone asks whether a field, type or rule sits on the right entity or layer, whether a new mechanism duplicates an existing one, or whether an external system's vocabulary leaks into the domain. On an implemented branch that has a spec, run it before the pre-PR review to check the code kept the promised shape (mode `drift`). Not for writing a spec, reviewing tests, hunting bugs in a diff, or judging whether a feature is worth building.
 ---
 
 # Design review
