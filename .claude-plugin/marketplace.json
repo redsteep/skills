@@ -42,6 +42,12 @@
       "source": "./plugins/pre-pr-review",
       "description": "Gated review of a finished feature branch before the PR: surface vs the spec, E2E, architecture, test strategy, mutation testing, refactor. Blocks `gh pr create` until the review has run.",
       "category": "workflow"
+    },
+    {
+      "name": "design-review",
+      "source": "./plugins/design-review",
+      "description": "Adversarial review of a proposed design against the code it lands in — seven named tests from DDD and SOLID, read as a slice across every layer. Before implementation on the spec, and again on the branch to catch drift.",
+      "category": "workflow"
     }
   ]
 }
