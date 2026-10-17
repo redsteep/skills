@@ -144,6 +144,12 @@ saying "I don't like it", and will rightly be ignored.
 
 **Yes** / **No** — what the code shows, with the command's output.
 
+A spec with no current-model tree is answered here and nowhere else: say it has
+none, say what you read instead, and go on. It is not a finding and carries no
+kind — findings are tests 1…7 — and a spec written before the profile's tree
+sections existed cannot be faulted for lacking them. What the missing tree *hid*
+is a finding, under whichever test it belongs to.
+
 ### Outside the tests
 
 Anything the reading put in front of you that no test covers — a figure that will
