@@ -111,6 +111,27 @@ protocols, does a new implementation honour the contract, or must callers know
 which one they got — a method that raises where others return, a nullable that is
 never null for one implementation, an ordering only one of them keeps?
 
+## Every finding carries a kind
+
+The fixture is the code as it stood when the design was proposed — nothing from
+the proposal is implemented in it. That makes the kind a matter of fact, not of
+taste: read how the finding relates the proposal to that code.
+
+- **introduced** — the defect exists only if the proposal is carried out: a
+  duplicate of something that already exists, a field on the wrong owner, a
+  second mechanism beside a working one. → the proposal changes.
+- **assumed** — the proposal relies on a property the code does not have, so it
+  will not work as written. The broken thing may be older than the proposal; the
+  defect is still the proposal's, because it builds on it. → verify the premise
+  first, then decide whether the proposal or the code changes.
+- **pre-existing** — true of the code already, and the proposal neither causes it
+  nor is asked to fix it. → out of scope here; a backlog item at most.
+
+A report of nothing but **pre-existing** findings is a design that holds: in any
+codebase carrying debt, every change walks past something, and saying so is not a
+verdict on the design. Say that in the verdict rather than leaving a reader to
+count.
+
 ## Evidence or it is taste
 
 Every finding cites `file:line`, a docstring, or the containment command's
@@ -130,6 +151,7 @@ not compute, a condition that matches nothing, a contradiction between a formula
 and a mock-up. Omit the section when there is nothing. Each one:
 
 - **Spec line** — quoted
+- **Kind** — introduced · assumed · pre-existing
 - **What's wrong** — one sentence
 - **Evidence** — `file:line`, docstring, command output, or the arithmetic
 
@@ -137,12 +159,15 @@ and a mock-up. Omit the section when there is nothing. Each one:
 
 - **Spec line** — quoted
 - **Test** — 1…7 by name
+- **Kind** — introduced · assumed · pre-existing
 - **What's wrong** — one sentence
 - **Evidence** — `file:line`, docstring, command output
 - **Where it belongs** — the owner, the existing stage, the existing mechanism
 
 ### Verdict
 
-**Does the structure hold?** Yes / No — N findings by test: … · M outside the tests.
+**Does the structure hold?** Yes / No — N findings by test: … · M outside the
+tests. Then by kind: I introduced · A assumed · P pre-existing. Zero introduced
+and zero assumed means the design holds, whatever P is.
 
 Your final message IS the report.
