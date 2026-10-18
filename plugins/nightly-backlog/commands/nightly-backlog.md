@@ -1,5 +1,5 @@
 ---
-description: Unattended night run — take one tech-debt item to a draft PR, triage a few unmarked ones
+description: Unattended night run — take one tech-debt item to a PR, triage a few unmarked ones
 argument-hint: "[report=<path>] [before=<log>] [item — force this item, skip selection]"
 ---
 
@@ -7,7 +7,7 @@ You are working at night, with nobody around. Nobody will answer a question or c
 
 `$ARGUMENTS` may hold `report=<path>` (where the report goes; default `<git common dir>/nightly/<YYYY-MM-DD>.md`), `before=<log>` (the output of the runner's `Before` commands) and an item (force that item).
 
-The night's result is **at most one draft PR** and the report. Zero PRs with an honest reason is a normal outcome; a PR "just in case" is not.
+The night's result is **at most one PR** and the report. The PR is ready for review unless a gate stands open on it (step 3.6); a draft says "not mergeable yet", so a clean night does not open one. Zero PRs with an honest reason is a normal outcome; a PR "just in case" is not.
 
 ## The project profile
 
@@ -88,7 +88,7 @@ The ordinary cycle, as by day, no shortcuts:
    - step 2 (if UI code was touched): run E2E via the subagent, but do not leave an app running for the human — write in the PR which screens to look at.
 
    Without that skill: read the whole diff against the repo's own conventions, and run its lint / type-check over the changed files.
-6. `REVIEWED=1 gh pr create --draft`, title prefixed `[nightly]`, body: the **Link**, the review summary, open questions.
+6. `REVIEWED=1 gh pr create`, title prefixed `[nightly]`, body: the **Link**, the review summary, open questions. Add `--draft` only when the review left a gate open — an extension with `Unattended: draft` triggered and not run — and name it in the body as `pre-pr-review` says; undrafting is then the owner's, after the gate. Open questions in the body are not a gate: they are read before the merge either way.
 
 Stuck — stop, do not open a PR. Stuck means: a red baseline; the test does not reproduce the problem; the fix pulls in a module the item does not name; a choice between two designs appeared that no existing pattern settles. Remove the worktree (Profile → Worktree; generic: `git worktree remove` + delete the branch), and put in the report the reason and which question a human has to settle for the item to become a night one.
 
@@ -100,7 +100,7 @@ Take up to 10 items from **Unmarked**, oldest first, and for each propose a mark
 
 At the report path, in the language **Profile → Report** names (default English). The first line carries the night's **status** as a fixed token, whatever the language — the runner reads it to decide whether to notify:
 
-- `pr` — a draft PR was opened and nothing waits on the owner beyond reading it;
+- `pr` — a ready PR was opened and nothing waits on the owner beyond reading it;
 - `questions` — something needs the owner: an open question, an outstanding gate on the PR, a forced item refused;
 - `stuck` — the item stopped half-way;
 - `quiet` — nothing taken, nothing to ask.
@@ -108,7 +108,7 @@ At the report path, in the language **Profile → Report** names (default Englis
 ```
 # Night <date> — <status>
 Before: <the last line of the before log, if any>
-Taken: <id> <title> → PR #M (draft) | nothing taken: <why>
+Taken: <id> <title> → PR #M [(draft — <the open gate>)] | nothing taken: <why>
 Open questions for the morning: … (only when there are some)
 Stopped at: … (if stuck)
 Markings (proposed):

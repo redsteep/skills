@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Unattended night run: one tech-debt backlog item → one draft PR (see commands/nightly-backlog.md).
+# Unattended night run: one tech-debt backlog item → one PR (see commands/nightly-backlog.md).
 #
 # Meant for a timer on the developer's own machine: a cloud routine would see only what is
 # in git, and lose memory, user-level plugins, local test stacks and worktree tooling.

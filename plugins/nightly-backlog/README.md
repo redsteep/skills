@@ -1,7 +1,7 @@
 # nightly-backlog
 
 An unattended night run for the tech-debt backlog. Each night Claude takes **at
-most one** item a human allowed to a **draft** PR, and proposes night markings for
+most one** item a human allowed to a PR (a draft only while a gate stays open), and proposes night markings for
 up to 10 unmarked items — in a report only; a human applies them.
 
 An item qualifies only if it goes from description to PR without a single

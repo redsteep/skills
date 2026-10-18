@@ -34,7 +34,7 @@
     {
       "name": "nightly-backlog",
       "source": "./plugins/nightly-backlog",
-      "description": "Unattended night run: takes one allowed tech-debt item (GitHub issues by default, any backlog via the profile) to a draft PR, proposes markings for a few more, and notifies through a project-defined command.",
+      "description": "Unattended night run: takes one allowed tech-debt item (GitHub issues by default, any backlog via the profile) to a PR — a draft only while a gate stays open — proposes markings for a few more, and notifies through a project-defined command.",
       "category": "automation"
     },
     {
