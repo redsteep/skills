@@ -74,6 +74,11 @@ off|done)
   echo "review mode OFF — $branch; $n item(s) queued in $queue"
   if [[ "$n" -gt 0 ]]; then
     grep '^- \[ \]' "$queue"
+    # Leaving hands the whole queue over for one iteration, so the next pass starts
+    # empty; the list is kept beside it for reference, not shown again.
+    applied="$(dirname "$queue")/applied-$(date +%Y%m%dT%H%M%S).md"
+    mv "$queue" "$applied"
+    echo "queue moved to $applied"
     echo "after applying: run pre-pr-review over the branch, then 'review-mode.sh on <worktree>' for the next pass"
   fi
   ;;
