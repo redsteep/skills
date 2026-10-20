@@ -47,3 +47,19 @@ guessed, and offers to write the profile.
 ```
 
 Pairs with [review-mode](../review-mode), which turns on when the PR opens.
+
+## Evaluating the test-strategy reviewer
+
+`evals/test_coverage.py` is this reviewer's adapter for the shared eval runner
+(`tools/reviewer-eval/run.py` at the repo root; format in `docs/reviewer-evals.md`). It
+fills `test-coverage-reviewer.md` the way step 4 does — the whole branch as step 0 builds
+it — so a change to the reviewer or to a project's testing rules is checked against cases
+instead of guessed at. The cases belong to the project: each is a defect someone flagged in
+a real review, pinned by tags on the project's origin, in an eval dir beside an `eval.yaml`
+(the profile's Layout under `inputs`, the rules files to bring up to date in each worktree,
+the files that count as project instructions).
+
+```
+python3 tools/reviewer-eval/run.py <project>/.claude/evals/test-reviewer \
+    --arms full,rules-only --repeat 3
+```

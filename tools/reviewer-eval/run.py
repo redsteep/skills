@@ -1,0 +1,311 @@
+#!/usr/bin/env python3
+"""Run a reviewer over a project's eval cases and judge each report against what the case expects.
+
+    python3 tools/reviewer-eval/run.py <eval-dir> [--case GLOB] [--arms full,...] [--repeat N]
+                                                  [--after-arms full] [-j 3]
+
+<eval-dir> lives in the project (e.g. `.claude/evals/test-reviewer`): `eval.yaml`, the project's
+side of the setup, and `cases/*.yaml`, each pointing at tagged commits of that project. Format:
+`docs/reviewer-evals.md`.
+
+`eval.yaml` names the reviewer as `<plugin>/<adapter>`: the module
+`plugins/<plugin>/evals/<adapter>.py` of this repo, which knows the reviewer's template and how
+its caller fills it. An adapter defines:
+
+    TEMPLATE      the reviewer prompt, relative to its plugin
+    TOOLS         tools allowed on top of Read, Grep, Glob and Bash(git:*)
+    CONTRACT      assertions judged on every run — the reviewer's own promises, not the case's
+    inputs(case, worktree, config) -> {PLACEHOLDER: value}
+    plain_prompt(case, worktree, inputs) -> str      the ask of the arms without the reviewer
+
+Arms cross two switches — the reviewer prompt vs the adapter's plain ask, and the project's
+instructions (`instruction_files`) present vs removed from the worktree:
+
+    full           reviewer prompt + project instructions   (what the caller runs)
+    reviewer-only  reviewer prompt, no project instructions
+    rules-only     plain ask + project instructions
+    neither        plain ask, no project instructions
+
+Per case, arm and repeat: a throwaway worktree at the case's `before` tag (and `after` for the arms
+in --after-arms), `copy_in` applied and, without instructions, `instruction_files` removed; a
+read-only `claude -p` run as the general-purpose agent; a judge run that answers yes/no per expected
+finding and per contract assertion. The reviewer template comes from this checkout, not from the
+installed plugin: the eval measures the version being edited. Raw output lands in
+<eval-dir>/runs/<sweep>/, one summary line per arm in <eval-dir>/results.md.
+"""
+
+import argparse
+import concurrent.futures
+import datetime
+import fnmatch
+import importlib.util
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+import yaml
+
+SKILLS = Path(__file__).resolve().parents[2]
+ARMS = {  # arm: (reviewer prompt?, project instructions?)
+    "full": (True, True),
+    "reviewer-only": (True, False),
+    "rules-only": (False, True),
+    "neither": (False, False),
+}
+# Project settings only (its hooks, its plugins), like a subagent of a session in this repo: the
+# user's own plugins, output style and MCP servers are not part of what is measured.
+SESSION_FLAGS = ["--setting-sources", "project", "--strict-mcp-config"]
+BASE_TOOLS = ["Read", "Grep", "Glob", "Bash(git:*)"]
+JUDGE_MODEL = "sonnet"
+_PLACEHOLDER = re.compile(r"\{[A-Z][A-Z_]+\}")
+
+JUDGE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "verdicts": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "index": {"type": "integer"},
+                    "hit": {"type": "boolean"},
+                    "quote": {"type": "string"},
+                },
+                "required": ["index", "hit", "quote"],
+            },
+        },
+        "contract": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "index": {"type": "integer"},
+                    "held": {"type": "boolean"},
+                    "quote": {"type": "string"},
+                },
+                "required": ["index", "held", "quote"],
+            },
+        },
+    },
+    "required": ["verdicts", "contract"],
+}
+
+
+class Eval:
+    def __init__(self, eval_dir: Path):
+        self.dir = eval_dir
+        self.repo = Path(sh("git", "rev-parse", "--show-toplevel", cwd=eval_dir))
+        self.config = yaml.safe_load((eval_dir / "eval.yaml").read_text())
+        plugin, adapter = self.config["reviewer"].split("/")
+        self.plugin = SKILLS / "plugins" / plugin
+        path = self.plugin / "evals" / f"{adapter}.py"
+        spec = importlib.util.spec_from_file_location(adapter, path)
+        if spec is None or spec.loader is None:
+            raise SystemExit(f"no adapter at {path}")
+        self.adapter = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.adapter)
+
+    def copy_in(self, worktree: Path) -> None:
+        """`from: /x` is the repo's file (today's version); `from: x` is the eval dir's (frozen).
+        `to` defaults to `from` without the slash. `${CLAUDE_PLUGIN_ROOT}` is expanded to this
+        checkout's plugin, so a profile's commands reach the scripts being measured."""
+        for entry in self.config.get("copy_in", []):
+            src = self.repo / entry["from"][1:] if entry["from"].startswith("/") else self.dir / entry["from"]
+            dest = worktree / entry.get("to", entry["from"].lstrip("/"))
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(src.read_text().replace("${CLAUDE_PLUGIN_ROOT}", str(self.plugin)))
+
+    def reviewer_prompt(self, inputs: dict) -> str:
+        prompt = (self.plugin / self.adapter.TEMPLATE).read_text().replace("${CLAUDE_PLUGIN_ROOT}", str(self.plugin))
+        for key, value in inputs.items():
+            prompt = prompt.replace("{" + key + "}", value)
+        # A placeholder renamed in the template and not in the adapter would reach the reviewer as
+        # literal text; fail the run instead.
+        if left := sorted(set(_PLACEHOLDER.findall(prompt)) - {"{" + k + "}" for k in inputs}):
+            raise SystemExit(f"{self.adapter.TEMPLATE}: placeholders the adapter does not fill: {left}")
+        return prompt
+
+    def header(self) -> str:
+        version = json.loads((self.plugin / ".claude-plugin/plugin.json").read_text())["version"]
+        parts = [f"{self.plugin.name} {version} ({sh('git', 'rev-parse', '--short', 'HEAD', cwd=SKILLS)})"]
+        for rel in self.config.get("record_shas", []):
+            parts.append(f"{Path(rel).name} {sh('git', 'log', '-1', '--format=%h', '--', rel, cwd=self.repo)}")
+        return " · ".join(parts)
+
+
+def sh(*args: str, cwd: Path) -> str:
+    return subprocess.run(args, cwd=cwd, check=True, capture_output=True, text=True).stdout.strip()
+
+
+def judge_prompt(case: dict, contract: list[str], report: str) -> str:
+    def where(e: dict) -> str:
+        if "file" not in e:
+            return ""
+        lines = e.get("lines")
+        return f"{e['file']}:{lines[0]}-{lines[1]}\n  " if lines else f"{e['file']}\n  "
+
+    expected = "\n".join(
+        f"[{i}] {where(e)}defect: {e['defect'].strip()}\n  counts as a hit: {e['match'].strip()}"
+        for i, e in enumerate(case["expected"])
+    )
+    promises = "\n".join(f"[{i}] {c.strip()}" for i, c in enumerate(contract)) or "(none)"
+    return (
+        "You grade a review report. Two lists, two kinds of answer.\n\n"
+        "`verdicts` — for each expected defect, one yes/no question: does any issue in the report name "
+        "this defect, as the 'counts as a hit' line describes? Coverage-map or table rows count only when "
+        "they mark the defect as a problem. When hit is true, quote the report's line that names it; "
+        "when false, quote nothing.\n\n"
+        "`contract` — for each promise, does the report as a whole keep it? When held is false, quote "
+        "the line that breaks it; when true, quote nothing.\n\n"
+        f"## Expected defects\n{expected}\n\n## Promises\n{promises}\n\n## Report\n{report}"
+    )
+
+
+def claude(prompt: str, cwd: Path, extra: list[str], env: dict | None = None) -> dict:
+    out = subprocess.run(
+        ["claude", "-p", "--output-format", "json", *extra],
+        input=prompt, cwd=cwd, capture_output=True, text=True, timeout=3600,
+        env={**os.environ, **(env or {})},
+    )
+    try:
+        return json.loads(out.stdout)
+    except json.JSONDecodeError:
+        return {"is_error": True, "result": out.stdout + out.stderr, "total_cost_usd": 0}
+
+
+def run_one(ev: Eval, case: dict, arm: str, side: str, rep: int, sweep_dir: Path, worktree_root: Path) -> dict:
+    use_reviewer, use_instructions = ARMS[arm]
+    name = f"{case['id']}.{arm}.{side}.{rep}"
+    worktree = worktree_root / name
+    sh("git", "worktree", "add", "--detach", str(worktree), f"{ev.config['tag_prefix']}/{case['id']}/{side}", cwd=ev.repo)
+    try:
+        # Every eval set of the project (cases, `match` texts, past reports): a case cut from a commit
+        # newer than the eval dir would otherwise carry its own answer.
+        shutil.rmtree(worktree / ev.dir.relative_to(ev.repo).parent, ignore_errors=True)
+        ev.copy_in(worktree)
+        if not use_instructions:
+            for rel in ev.config["instruction_files"]:
+                (worktree / rel).unlink(missing_ok=True)
+        inputs = ev.adapter.inputs(case, worktree, ev.config.get("inputs", {}))
+        prompt = ev.reviewer_prompt(inputs) if use_reviewer else ev.adapter.plain_prompt(case, worktree, inputs)
+        tools = [*BASE_TOOLS, *getattr(ev.adapter, "TOOLS", [])]
+        review = claude(
+            prompt,
+            worktree,
+            [*SESSION_FLAGS, "--agent", "general-purpose", "--allowedTools", *tools,
+             "--disallowedTools", "Edit", "Write", "Agent", "Skill"],
+            env={"CLAUDE_PLUGIN_ROOT": str(ev.plugin)},
+        )
+    finally:
+        sh("git", "worktree", "remove", "--force", str(worktree), cwd=ev.repo)
+    report = review.get("result", "")
+    (sweep_dir / f"{name}.report.md").write_text(report)
+
+    contract = list(getattr(ev.adapter, "CONTRACT", []))
+    judge = claude(
+        judge_prompt(case, contract, report),
+        worktree_root,
+        ["--setting-sources", "", "--strict-mcp-config", "--tools", "", "--model", JUDGE_MODEL,
+         "--json-schema", json.dumps(JUDGE_SCHEMA)],
+    )
+    verdict = judge.get("structured_output") or {}
+    verdicts = sorted(verdict.get("verdicts", []), key=lambda v: v["index"])
+    held = sorted(verdict.get("contract", []), key=lambda v: v["index"])
+    result = {
+        "case": case["id"], "arm": arm, "side": side, "rep": rep,
+        "hits": [v["hit"] for v in verdicts], "verdicts": verdicts,
+        "contract": [c["held"] for c in held], "contract_verdicts": held,
+        "review_error": review.get("is_error", False),
+        "judge_error": len(verdicts) != len(case["expected"]) or len(held) != len(contract),
+        # A tool the reviewer needed and was refused: its report is short of what it could see.
+        "permission_denials": [d.get("tool_name") for d in review.get("permission_denials", [])],
+        "models": sorted(review.get("modelUsage", {})),
+        "review_cost_usd": round(review.get("total_cost_usd", 0), 2),
+        "judge_cost_usd": round(judge.get("total_cost_usd", 0), 2),
+        "duration_s": round(review.get("duration_ms", 0) / 1000),
+    }
+    (sweep_dir / f"{name}.verdict.json").write_text(json.dumps(result, indent=2))
+    denied = f" denied={result['permission_denials']}" if result["permission_denials"] else ""
+    print(f"{name}: hits={result['hits']} contract={result['contract']}{denied} "
+          f"${result['review_cost_usd']} {result['duration_s']}s", flush=True)
+    return result
+
+
+def summary_line(sweep: str, arm: str, cases: list[dict], results: list[dict], header: str, repeat: int) -> str:
+    mine = [r for r in results if r["arm"] == arm]
+    parts = []
+    for case in cases:
+        before = [r for r in mine if r["case"] == case["id"] and r["side"] == "before"]
+        after = [r for r in mine if r["case"] == case["id"] and r["side"] == "after"]
+        part = f"{case['id']} {sum(sum(r['hits']) for r in before)}/{len(case['expected']) * len(before)}"
+        if after:
+            part += f" (after: {sum(sum(r['hits']) for r in after)} flagged)"
+        parts.append(part)
+    cost = sum(r["review_cost_usd"] + r["judge_cost_usd"] for r in mine)
+    models = sorted({m for r in mine for m in r["models"]})
+    errors = sum(r["review_error"] or r["judge_error"] for r in mine)
+    denials = sum(bool(r["permission_denials"]) for r in mine)
+    contract = [held for r in mine for held in r["contract"]]
+    return (
+        f"- {sweep} · **{arm}** · {header} · {', '.join(models) or '?'} · ×{repeat} · ${cost:.2f}"
+        f"{f' · contract {sum(contract)}/{len(contract)}' if contract else ''}"
+        f"{f' · {errors} errors' if errors else ''}{f' · {denials} runs with denied tools' if denials else ''} — "
+        + "; ".join(parts)
+    )
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("eval_dir", type=Path, help="the project's eval dir: eval.yaml + cases/")
+    parser.add_argument("--case", default="*")
+    parser.add_argument("--arms", default="full", help=f"comma-separated, of {', '.join(ARMS)}")
+    parser.add_argument("--after-arms", default="full", help="arms that also run on `after` ('' for none)")
+    parser.add_argument("--repeat", type=int, default=1)
+    parser.add_argument("-j", "--concurrency", type=int, default=3)
+    args = parser.parse_args()
+
+    ev = Eval(args.eval_dir.resolve())
+    arms = args.arms.split(",")
+    after_arms = set(filter(None, args.after_arms.split(",")))
+    if unknown := [a for a in arms if a not in ARMS]:
+        sys.exit(f"unknown arm(s): {unknown}")
+    cases = [
+        yaml.safe_load(p.read_text())
+        for p in sorted((ev.dir / "cases").glob("*.yaml"))
+        if fnmatch.fnmatch(p.stem, args.case)
+    ]
+    if not cases:
+        sys.exit(f"no case matches {args.case!r}")
+    tags = f"refs/tags/{ev.config['tag_prefix']}/*"
+    sh("git", "fetch", "origin", f"{tags}:{tags}", cwd=ev.repo)
+
+    sweep = datetime.datetime.now().strftime("%Y-%m-%dT%H%M")
+    sweep_dir = ev.dir / "runs" / sweep
+    sweep_dir.mkdir(parents=True)
+    worktree_root = Path(tempfile.mkdtemp(prefix=f"{ev.dir.name}-eval-"))
+
+    jobs = [
+        (case, arm, side, rep)
+        for case in cases
+        for arm in arms
+        for side in (["before", "after"] if arm in after_arms else ["before"])
+        for rep in range(1, args.repeat + 1)
+    ]
+    print(f"{len(jobs)} reviewer runs → {sweep_dir}", flush=True)
+    with concurrent.futures.ThreadPoolExecutor(args.concurrency) as pool:
+        results = list(pool.map(lambda j: run_one(ev, j[0], j[1], j[2], j[3], sweep_dir, worktree_root), jobs))
+    shutil.rmtree(worktree_root, ignore_errors=True)
+
+    lines = [summary_line(sweep, arm, cases, results, ev.header(), args.repeat) for arm in arms]
+    with (ev.dir / "results.md").open("a") as f:
+        f.write("\n".join(lines) + "\n")
+    print("\n".join(lines))
+
+
+if __name__ == "__main__":
+    main()

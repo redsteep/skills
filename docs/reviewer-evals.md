@@ -78,7 +78,38 @@ An assertion that passes in every arm on every case measures nothing — drop it
 
 ## Running
 
-Per case, arm and repeat: a detached worktree at the tag, the profile or rules copied in (or the
-instructions removed), a read-only headless run of the reviewer, a judge run with no tools that
-returns structured verdicts. The test reviewer's `run.py` (Rhumbler, `.claude/evals/test-reviewer/`)
-does this; it moves into the plugin once a second reviewer runs on it.
+```
+python3 tools/reviewer-eval/run.py <project>/.claude/evals/<reviewer> \
+    [--case GLOB] [--arms full,neither] [--after-arms full] [--repeat 3] [-j 3]
+```
+
+Per case, arm and repeat: a detached worktree at the tag, `copy_in` applied (or the instructions
+removed), a read-only headless run of the reviewer, a judge run with no tools that returns
+structured verdicts. The template comes from this checkout, not from the installed plugin: the
+eval measures the version being edited.
+
+The runner is generic; what differs per reviewer is an **adapter** that ships with its plugin,
+`plugins/<plugin>/evals/<name>.py`, and changes in the same commit as the template's placeholders:
+
+| Name | What |
+|---|---|
+| `TEMPLATE` | the reviewer prompt, relative to the plugin |
+| `TOOLS` | allowed on top of `Read`, `Grep`, `Glob`, `Bash(git:*)` |
+| `CONTRACT` | the generic assertions, judged on every run |
+| `inputs(case, worktree, config)` | `{PLACEHOLDER: value}`, filled the way the caller fills it; an unfilled placeholder fails the run |
+| `plain_prompt(case, worktree, inputs)` | the ask of the arms without the reviewer |
+
+The project's `eval.yaml`:
+
+```yaml
+reviewer: <plugin>/<adapter>
+tag_prefix: eval/<reviewer>
+copy_in:                       # `/path` = the repo's current file, same path; `path` = from the eval dir
+  - {from: profile.md, to: .claude/design-review.md}
+record_shas: []                # files whose last commit goes into each results line
+instruction_files: [CLAUDE.md, docs/guidelines/code.md]
+inputs: {}                     # the adapter's own settings
+```
+
+`${CLAUDE_PLUGIN_ROOT}` in the template and in copied files is expanded to the checkout's plugin.
+Each verdict records the tools the reviewer was refused; a run with denials saw less than it could.
