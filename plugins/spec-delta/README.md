@@ -3,7 +3,7 @@
 A design spec that describes its changes in prose can't be checked against the
 code. One that **lists** them can: every new name in the domain, storage, contract
 and flow, one line each with its justification, plus what was rejected. Then a
-review (e.g. step 1 of [`pre-pr-review`](../pre-pr-review)) subtracts the diff
+review (e.g. [`design-review`](../design-review)'s drift mode) subtracts the diff
 from the list, and anything left over is surface nobody asked for.
 
 This plugin keeps specs honest about that:

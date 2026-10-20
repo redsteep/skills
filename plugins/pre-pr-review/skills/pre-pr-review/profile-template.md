@@ -15,6 +15,14 @@ Keep section names as they are: the skill and its reviewers refer to them.
 - **Tests covering a unit:** <how to find them, e.g. `grep -rln "<symbol>" tests/`>
 - **Worktrees:** <where feature worktrees live and how they are made, if any>
 
+The agents' input generator reads this block (path prefixes of production code; directory names
+that hold tests). Without it, every changed file that is not a test, doc or config counts as source.
+
+```yaml pre-pr-review-layout
+source_prefixes: [<e.g. src/, app/, migrations/>]
+test_dirs: [tests, __tests__]
+```
+
 ## Targeted tests
 
 One command per package, from that package's directory, over the given files:
@@ -29,7 +37,7 @@ Traps:
 
 ## Extensions
 
-<!-- Points: after-setup · after-surface · before-pr · pr-body · after-pr (see SKILL.md § Extension points).
+<!-- Points: after-setup · before-pr · pr-body · after-pr (see SKILL.md § Extension points).
      Unattended: run (default) · draft · skip. -->
 
 ### <point>: <name, e.g. after-setup: Migrations>
@@ -62,7 +70,6 @@ Traps:
 
 ## Review context
 
-- **Surface by path:** <domain / storage / contract / code paths in this repo>
 - **Duplicate shapes:** <abstractions that already exist and get re-invented here>
 - **Layer → rules sections:** <path → section of the code-rules file>
 - **Severities:** <what counts as Critical / Important here>

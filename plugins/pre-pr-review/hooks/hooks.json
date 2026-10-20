@@ -1,5 +1,5 @@
 {
-  "description": "Deny `gh pr create` until the branch has passed pre-pr-review (opt through with REVIEWED=1)",
+  "description": "Deny `gh pr create` until the branch has passed pre-pr-review (opt through with REVIEWED=1); give this plugin's agents a generated input instead of the dispatch's prompt",
   "hooks": {
     "PreToolUse": [
       {
@@ -9,6 +9,16 @@
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/require-pre-pr-review.sh\"",
             "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/generate-agent-input.py\"",
+            "timeout": 30
           }
         ]
       }

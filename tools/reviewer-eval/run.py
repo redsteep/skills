@@ -21,7 +21,9 @@ side of the setup, and `cases/*.yaml`, each pointing at tagged commits of that p
 `plugins/<plugin>/evals/<adapter>.py` of this repo, which knows the reviewer's template and how
 its caller fills it. An adapter defines:
 
-    TEMPLATE      the reviewer prompt, relative to its plugin
+    AGENT         the plugin's agent that is the reviewer (`<plugin>:<name>`), run from this
+                  checkout with `--plugin-dir`; inputs() then returns {"MESSAGE": its task message}
+    TEMPLATE      or: the reviewer prompt, relative to its plugin, filled from inputs()
     TOOLS         tools allowed on top of Read, Grep, Glob and Bash(git:*)
     CONTRACT      assertions judged on every run — the reviewer's own promises, not the case's
     inputs(case, worktree, config) -> {PLACEHOLDER: value}
@@ -231,12 +233,22 @@ def run_one(ev: Eval, case: dict, arm: str, rules: str, side: str, rep: int, swe
             for rel in ev.config["instruction_files"]:
                 (worktree / rel).unlink(missing_ok=True)
         inputs = ev.adapter.inputs(case, worktree, ev.config.get("inputs", {}))
-        prompt = ev.reviewer_prompt(inputs) if use_reviewer else ev.adapter.plain_prompt(case, worktree, inputs)
+        agent = getattr(ev.adapter, "AGENT", None)
+        if use_reviewer and agent:
+            # The plugin's own agent, loaded from this checkout: its definition is the procedure,
+            # the generated message its whole input — what a real dispatch delivers.
+            prompt, session = inputs["MESSAGE"], ["--agent", agent, "--plugin-dir", str(ev.plugin)]
+        elif use_reviewer:
+            prompt, session = ev.reviewer_prompt(inputs), ["--agent", "general-purpose"]
+        else:
+            prompt, session = ev.adapter.plain_prompt(case, worktree, inputs), ["--agent", "general-purpose"]
         tools = [*BASE_TOOLS, *getattr(ev.adapter, "TOOLS", [])]
+        if use_reviewer and agent:
+            tools.append("Bash")  # the agent's own `tools:` line has unrestricted Bash, as in a real review
         review = claude(
             prompt,
             worktree,
-            [*SESSION_FLAGS, "--agent", "general-purpose", "--allowedTools", *tools,
+            [*SESSION_FLAGS, *session, "--allowedTools", *tools,
              "--disallowedTools", "Edit", "Write", "Agent", "Skill"],
             env={"CLAUDE_PLUGIN_ROOT": str(ev.plugin)},
         )
