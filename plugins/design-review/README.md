@@ -73,3 +73,17 @@ Point it at corrections you have already made, where the answer is known. On the
 project it was built for, nine known placement errors gave five clear hits, one
 weak, two misses and one case deliberately out of scope — and the two misses are
 why tests 1 and 6 read the way they do.
+
+## Evals
+
+Cases live in the project that made the mistakes (format: [`docs/reviewer-evals.md`](../../docs/reviewer-evals.md)).
+Every case also carries the skill's own contract:
+
+- **Every finding is a placement finding** — one of the seven tests, or "Outside the tests"
+  for a correctness error. No findings about tests, typed ids, wording, counts, undeclared
+  surface, or whether the feature is worth doing.
+
+This is the assertion that separated the skill from an unstructured review on the first
+measured set (skill 100%, baseline 50%): the baseline's misses were findings about tests,
+typing and prose mixed in with the placement ones. "Cites file:line" and "changes nothing in the repo" passed in both
+arms every time and were dropped.
