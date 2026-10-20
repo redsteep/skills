@@ -124,7 +124,9 @@ Overall: the rule works / works for review only / doesn't change behaviour — <
 ```
 
 On a fail: say what the agent did instead, sharpen the wording (name the concrete shape, give
-the example from this feature), and re-run **only the failed run**. Don't add a second rule to
+an example of it in generic terms — not this feature's own names, which belong in the commit
+message: a rule that quotes its incident ages with those names and hands the answer to any eval
+case cut from it), and re-run **only the failed run**. Don't add a second rule to
 make the first one pass. Stop after two rewrites and bring it to the user.
 
 ## Cost

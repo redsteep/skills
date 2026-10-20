@@ -1,6 +1,6 @@
 {
   "name": "instruction-feedback",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "When you correct Claude's implementation (\"why is this here?\", \"no need\", \"remove it\"), it fixes the code and proposes the one-line instruction change that would have prevented it — so the same correction isn't needed twice — and offers to prove the amendment works by replaying the reviewer and the spec writer on the commits that made the mistake.",
   "author": {
     "name": "Stanislav Krasnoyarov",
