@@ -42,7 +42,9 @@ expected:
   squash-merged branch leaves its commits unreachable, and GitHub drops unreachable objects; a
   tag keeps them. The sha goes in a comment for a reader.
 - **`after`** is the corrected commit. A run there must flag none of `expected` — the false
-  alarm check, in the same case instead of a separate control.
+  alarm check, in the same case instead of a separate control. Check that it really is corrected:
+  a fix that moved the mistake out of one place and left it in another makes a reviewer's hit there
+  a true positive. When no commit is clean, leave `after` out and say why in a comment.
 - **Inputs** are what the reviewer is dispatched with, not a user's phrasing. Whether the review
   starts at all is the hook's or the caller's job, tested separately.
 - **`expected`** — one entry per defect; a judge answers one yes/no question per entry from the

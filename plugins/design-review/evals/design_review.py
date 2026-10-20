@@ -10,11 +10,17 @@ from pathlib import Path
 TEMPLATE = "skills/design-review/design-reviewer.md"
 # The profile's Containment command: `CONTAINMENT_SOURCES=… python3 …/containment.py`.
 TOOLS = ["Bash(python3:*)", "Bash(CONTAINMENT_SOURCES=*)"]
+# The skill's own scope (README "Seven tests" and design-reviewer.md "Outside the tests"), quoted
+# rather than paraphrased: a narrower wording made the judge reject the contradictions and
+# figures that won't compute which the skill asks for.
 CONTRACT = [
-    "Every finding is a placement finding — one of the seven tests (value object / entity, aggregate "
-    "boundary, ubiquitous language, anti-corruption layer, translation between stages, OCP, LSP), or "
-    "listed under 'Outside the tests' as a correctness error. No findings about tests, typed ids, "
-    "wording or prose, counts, undeclared surface, or whether the feature is worth doing.",
+    "Every finding is either a placement finding — one of the seven tests: value object / entity, "
+    "aggregate boundary, ubiquitous language, anti-corruption layer, translation between stages, OCP, "
+    "LSP — or an 'Outside the tests' item: something the reading surfaced that no test covers, such as "
+    "a figure that will not compute, a condition that matches nothing, or a contradiction within the "
+    "spec or between the spec and the code. Broken only by a finding about what the skill deliberately "
+    "leaves out: whether the feature is worth doing, completeness of declarations, tests, style or "
+    "wording, file size, or anything a tool already enforces.",
 ]
 
 

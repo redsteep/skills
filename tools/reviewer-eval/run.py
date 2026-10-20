@@ -209,6 +209,12 @@ def claude(prompt: str, cwd: Path, extra: list[str], env: dict | None = None) ->
         return {"is_error": True, "result": out.stdout + out.stderr, "total_cost_usd": 0}
 
 
+def _denial(d: dict) -> dict:
+    tool_input = d.get("tool_input") or {}
+    detail = tool_input.get("command") or tool_input.get("file_path") or tool_input.get("path") or tool_input.get("pattern")
+    return {"tool": d.get("tool_name"), "input": detail if detail is not None else tool_input}
+
+
 def run_one(ev: Eval, case: dict, arm: str, rules: str, side: str, rep: int, sweep_dir: Path,
             worktree_root: Path, tag_rules: bool) -> dict:
     use_reviewer, use_instructions = ARMS[arm]
@@ -255,15 +261,16 @@ def run_one(ev: Eval, case: dict, arm: str, rules: str, side: str, rep: int, swe
         "contract": [c["held"] for c in held], "contract_verdicts": held,
         "review_error": review.get("is_error", False),
         "judge_error": len(verdicts) != len(case["expected"]) or len(held) != len(contract),
-        # A tool the reviewer needed and was refused: its report is short of what it could see.
-        "permission_denials": [d.get("tool_name") for d in review.get("permission_denials", [])],
+        # A tool the reviewer needed and was refused: its report is short of what it could see. The
+        # command or path says which allow rule is missing.
+        "permission_denials": [_denial(d) for d in review.get("permission_denials", [])],
         "models": sorted(review.get("modelUsage", {})),
         "review_cost_usd": round(review.get("total_cost_usd", 0), 2),
         "judge_cost_usd": round(judge.get("total_cost_usd", 0), 2),
         "duration_s": round(review.get("duration_ms", 0) / 1000),
     }
     (sweep_dir / f"{name}.verdict.json").write_text(json.dumps(result, indent=2))
-    denied = f" denied={result['permission_denials']}" if result["permission_denials"] else ""
+    denied = f" denied={[d['tool'] for d in result['permission_denials']]}" if result["permission_denials"] else ""
     print(f"{name}: hits={result['hits']} contract={result['contract']}{denied} "
           f"${result['review_cost_usd']} {result['duration_s']}s", flush=True)
     return result
@@ -335,7 +342,8 @@ def main() -> None:
         for case in cases
         for arm in arms
         for rules in variants
-        for side in (["before", "after"] if arm in after_arms else ["before"])
+        # A case without `after` has no corrected commit to check a false alarm against.
+        for side in (["before", "after"] if arm in after_arms and case.get("after") else ["before"])
         for rep in range(1, args.repeat + 1)
     ]
     print(f"{len(jobs)} reviewer runs → {sweep_dir}", flush=True)
