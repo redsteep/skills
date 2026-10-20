@@ -2,7 +2,16 @@
 """Run a reviewer over a project's eval cases and judge each report against what the case expects.
 
     python3 tools/reviewer-eval/run.py <eval-dir> [--case GLOB] [--arms full,...] [--repeat N]
-                                                  [--after-arms full] [-j 3]
+                                                  [--after-arms full] [--rules REV ...] [-j 3]
+
+Would the instruction edit I am making work better?
+
+    run.py <eval-dir> --rules HEAD --rules worktree --repeat 3
+
+`--rules` picks where the repo-side `copy_in` files (`from: /path`) come from: `worktree` — the
+checkout as it is, uncommitted edits included (the default) — or any git revision. Given more than
+once, every job runs once per variant and results.md gets a line per arm and variant, labelled with
+the revision, or with the files that differ from HEAD.
 
 <eval-dir> lives in the project (e.g. `.claude/evals/test-reviewer`): `eval.yaml`, the project's
 side of the setup, and `cases/*.yaml`, each pointing at tagged commits of that project. Format:
@@ -62,6 +71,7 @@ ARMS = {  # arm: (reviewer prompt?, project instructions?)
 SESSION_FLAGS = ["--setting-sources", "project", "--strict-mcp-config"]
 BASE_TOOLS = ["Read", "Grep", "Glob", "Bash(git:*)"]
 JUDGE_MODEL = "sonnet"
+WORKTREE = "worktree"  # --rules value: the checkout as it is, uncommitted edits included
 _PLACEHOLDER = re.compile(r"\{[A-Z][A-Z_]+\}")
 
 JUDGE_SCHEMA = {
@@ -110,15 +120,36 @@ class Eval:
         self.adapter = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.adapter)
 
-    def copy_in(self, worktree: Path) -> None:
-        """`from: /x` is the repo's file (today's version); `from: x` is the eval dir's (frozen).
-        `to` defaults to `from` without the slash. `${CLAUDE_PLUGIN_ROOT}` is expanded to this
-        checkout's plugin, so a profile's commands reach the scripts being measured."""
+    def repo_files(self) -> list[str]:
+        return [e["from"][1:] for e in self.config.get("copy_in", []) if e["from"].startswith("/")]
+
+    def copy_in(self, worktree: Path, rules: str) -> None:
+        """`from: /x` is the repo's file — from the working tree when `rules` is `worktree`
+        (uncommitted edits included), else from that revision; `from: x` is the eval dir's
+        (frozen). `to` defaults to `from` without the slash. `${CLAUDE_PLUGIN_ROOT}` is expanded to
+        this checkout's plugin, so a profile's commands reach the scripts being measured."""
         for entry in self.config.get("copy_in", []):
-            src = self.repo / entry["from"][1:] if entry["from"].startswith("/") else self.dir / entry["from"]
+            if not entry["from"].startswith("/"):
+                text = (self.dir / entry["from"]).read_text()
+            elif rules == WORKTREE:
+                text = (self.repo / entry["from"][1:]).read_text()
+            else:
+                text = subprocess.run(["git", "show", f"{rules}:{entry['from'][1:]}"], cwd=self.repo,
+                                      check=True, capture_output=True, text=True).stdout
             dest = worktree / entry.get("to", entry["from"].lstrip("/"))
             dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_text(src.read_text().replace("${CLAUDE_PLUGIN_ROOT}", str(self.plugin)))
+            dest.write_text(text.replace("${CLAUDE_PLUGIN_ROOT}", str(self.plugin)))
+
+    def rules_label(self, rules: str) -> str:
+        """What the repo-side files were, for the results line. A sha alone would claim a commit's
+        version while the run read an uncommitted edit."""
+        if rules != WORKTREE:
+            return f"rules {rules} ({sh('git', 'rev-parse', '--short', rules, cwd=self.repo)})"
+        files = self.repo_files()
+        dirty = sh("git", "status", "--porcelain", "--", *files, cwd=self.repo).splitlines() if files else []
+        if not dirty:
+            return "rules worktree (= HEAD)"
+        return "rules worktree (uncommitted: " + ", ".join(Path(l[3:]).name for l in dirty) + ")"
 
     def reviewer_prompt(self, inputs: dict) -> str:
         prompt = (self.plugin / self.adapter.TEMPLATE).read_text().replace("${CLAUDE_PLUGIN_ROOT}", str(self.plugin))
@@ -178,16 +209,18 @@ def claude(prompt: str, cwd: Path, extra: list[str], env: dict | None = None) ->
         return {"is_error": True, "result": out.stdout + out.stderr, "total_cost_usd": 0}
 
 
-def run_one(ev: Eval, case: dict, arm: str, side: str, rep: int, sweep_dir: Path, worktree_root: Path) -> dict:
+def run_one(ev: Eval, case: dict, arm: str, rules: str, side: str, rep: int, sweep_dir: Path,
+            worktree_root: Path, tag_rules: bool) -> dict:
     use_reviewer, use_instructions = ARMS[arm]
-    name = f"{case['id']}.{arm}.{side}.{rep}"
+    variant = f".{re.sub(r'[^A-Za-z0-9_-]', '_', rules)}" if tag_rules else ""
+    name = f"{case['id']}.{arm}{variant}.{side}.{rep}"
     worktree = worktree_root / name
     sh("git", "worktree", "add", "--detach", str(worktree), f"{ev.config['tag_prefix']}/{case['id']}/{side}", cwd=ev.repo)
     try:
         # Every eval set of the project (cases, `match` texts, past reports): a case cut from a commit
         # newer than the eval dir would otherwise carry its own answer.
         shutil.rmtree(worktree / ev.dir.relative_to(ev.repo).parent, ignore_errors=True)
-        ev.copy_in(worktree)
+        ev.copy_in(worktree, rules)
         if not use_instructions:
             for rel in ev.config["instruction_files"]:
                 (worktree / rel).unlink(missing_ok=True)
@@ -217,7 +250,7 @@ def run_one(ev: Eval, case: dict, arm: str, side: str, rep: int, sweep_dir: Path
     verdicts = sorted(verdict.get("verdicts", []), key=lambda v: v["index"])
     held = sorted(verdict.get("contract", []), key=lambda v: v["index"])
     result = {
-        "case": case["id"], "arm": arm, "side": side, "rep": rep,
+        "case": case["id"], "arm": arm, "rules": rules, "side": side, "rep": rep,
         "hits": [v["hit"] for v in verdicts], "verdicts": verdicts,
         "contract": [c["held"] for c in held], "contract_verdicts": held,
         "review_error": review.get("is_error", False),
@@ -236,8 +269,9 @@ def run_one(ev: Eval, case: dict, arm: str, side: str, rep: int, sweep_dir: Path
     return result
 
 
-def summary_line(sweep: str, arm: str, cases: list[dict], results: list[dict], header: str, repeat: int) -> str:
-    mine = [r for r in results if r["arm"] == arm]
+def summary_line(sweep: str, arm: str, rules: str, cases: list[dict], results: list[dict], header: str,
+                 repeat: int) -> str:
+    mine = [r for r in results if r["arm"] == arm and r["rules"] == rules]
     parts = []
     for case in cases:
         before = [r for r in mine if r["case"] == case["id"] and r["side"] == "before"]
@@ -266,6 +300,9 @@ def main() -> None:
     parser.add_argument("--arms", default="full", help=f"comma-separated, of {', '.join(ARMS)}")
     parser.add_argument("--after-arms", default="full", help="arms that also run on `after` ('' for none)")
     parser.add_argument("--repeat", type=int, default=1)
+    parser.add_argument("--rules", action="append", metavar="REV",
+                        help=f"where `from: /path` files come from: {WORKTREE!r} (default, uncommitted edits "
+                             "included) or a git revision; repeat to compare variants")
     parser.add_argument("-j", "--concurrency", type=int, default=3)
     args = parser.parse_args()
 
@@ -281,6 +318,10 @@ def main() -> None:
     ]
     if not cases:
         sys.exit(f"no case matches {args.case!r}")
+    variants = list(dict.fromkeys(args.rules or [WORKTREE]))
+    for rules in variants:
+        if rules != WORKTREE:
+            sh("git", "rev-parse", "--verify", "--quiet", f"{rules}^{{commit}}", cwd=ev.repo)
     tags = f"refs/tags/{ev.config['tag_prefix']}/*"
     sh("git", "fetch", "origin", f"{tags}:{tags}", cwd=ev.repo)
 
@@ -290,18 +331,25 @@ def main() -> None:
     worktree_root = Path(tempfile.mkdtemp(prefix=f"{ev.dir.name}-eval-"))
 
     jobs = [
-        (case, arm, side, rep)
+        (case, arm, rules, side, rep)
         for case in cases
         for arm in arms
+        for rules in variants
         for side in (["before", "after"] if arm in after_arms else ["before"])
         for rep in range(1, args.repeat + 1)
     ]
     print(f"{len(jobs)} reviewer runs → {sweep_dir}", flush=True)
     with concurrent.futures.ThreadPoolExecutor(args.concurrency) as pool:
-        results = list(pool.map(lambda j: run_one(ev, j[0], j[1], j[2], j[3], sweep_dir, worktree_root), jobs))
+        results = list(pool.map(
+            lambda j: run_one(ev, j[0], j[1], j[2], j[3], j[4], sweep_dir, worktree_root, len(variants) > 1), jobs))
     shutil.rmtree(worktree_root, ignore_errors=True)
 
-    lines = [summary_line(sweep, arm, cases, results, ev.header(), args.repeat) for arm in arms]
+    header = ev.header()
+    lines = [
+        summary_line(sweep, arm, rules, cases, results, f"{header} · {ev.rules_label(rules)}", args.repeat)
+        for arm in arms
+        for rules in variants
+    ]
     with (ev.dir / "results.md").open("a") as f:
         f.write("\n".join(lines) + "\n")
     print("\n".join(lines))

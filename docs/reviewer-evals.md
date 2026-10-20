@@ -111,5 +111,18 @@ instruction_files: [CLAUDE.md, docs/guidelines/code.md]
 inputs: {}                     # the adapter's own settings
 ```
 
+### Would my edit of the instructions work better?
+
+```
+python3 tools/reviewer-eval/run.py <eval-dir> --rules HEAD --rules worktree --repeat 3
+```
+
+`--rules` says where the repo-side `copy_in` files (`from: /path`) come from: `worktree` — the
+checkout as it is, uncommitted edits included, the default — or any git revision. Repeated, every
+job runs once per variant, and `results.md` gets a line per arm and variant, labelled `rules HEAD
+(<sha>)` or `rules worktree (uncommitted: testing.md)` — never a commit sha for a file that was
+read with edits on top. Only `copy_in` files vary: an instruction file left out of it comes from the
+case's own commit, so an edit to it is not measured.
+
 `${CLAUDE_PLUGIN_ROOT}` in the template and in copied files is expanded to the checkout's plugin.
 Each verdict records the tools the reviewer was refused; a run with denials saw less than it could.
