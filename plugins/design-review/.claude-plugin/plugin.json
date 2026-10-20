@@ -1,6 +1,6 @@
 {
   "name": "design-review",
-  "version": "0.1.4",
+  "version": "0.2.0",
   "description": "Adversarial review of a proposed design against the code it lands in — seven named tests from DDD and SOLID (value object vs entity, aggregate boundary, ubiquitous language, anti-corruption layer, translation between stages, OCP, LSP), read as a slice across every layer. Runs before implementation on the spec, and again on the implemented branch to catch drift.",
   "author": {
     "name": "Stanislav Krasnoyarov",

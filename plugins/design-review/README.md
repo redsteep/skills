@@ -25,7 +25,11 @@ every commit (list those in the profile and the reviewer skips them).
 
 ## Two modes
 
-- **`proposal`** — before any code. First checks that the spec's "as it is now"
+- **`proposal`** — before any code. Starts itself: a `PostToolUse` hook sees a new spec
+  (one matching the profile's **Specs live in** and not yet on the base branch) and tells
+  the agent to run the review now — once per spec per worktree, so the review's own edits
+  don't start another. Nobody announces the moment between "spec written" and "spec
+  committed"; left to the skill's description, the review was skipped. First checks that the spec's "as it is now"
   picture matches the code, because everything derived from a wrong picture is
   unanswerable.
 - **`drift`** — on the implemented branch. The names may all be present and the

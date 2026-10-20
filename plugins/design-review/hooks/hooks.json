@@ -1,0 +1,17 @@
+{
+  "description": "Start the proposal review when a new design spec is written, instead of waiting to be asked",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/review-new-spec.sh\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

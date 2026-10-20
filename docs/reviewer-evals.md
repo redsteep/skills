@@ -1,70 +1,84 @@
 # Reviewer evals
 
-How to measure a reviewer skill (`design-review`, the `pre-pr-review` reviewers) on cases where
-the answer is already known. The plugin owns the format and the assertions that test its own
-contract; the project owns the cases, because a case is a commit in that project's history.
+How to measure a reviewer (`design-review`, the `pre-pr-review` reviewers) on mistakes whose
+answer is already known. The plugin owns this format and the assertions that test its own
+contract; the project owns the cases, because a case is a pair of commits in that project's
+history.
 
 ## Where things live
 
 | Part | Where |
 |---|---|
 | This format | here |
-| Generic assertions — the skill's contract, added to every case | the plugin's README, "Evals" |
-| Cases, the frozen profile they run with | the project: `.claude/evals/<skill>/` |
-| Run outputs (transcripts, grading, viewer) | the project's gitignored scratch, e.g. `.tmp/evals/<skill>/iteration-N/` |
+| Generic assertions — the reviewer's contract, checked on every case | the plugin's README, "Evals" |
+| Cases | the project: `.claude/evals/<reviewer>/cases/<id>.yaml`, one file per case |
+| A frozen profile, when the reviewer needs one at old commits | the project: `.claude/evals/<reviewer>/profile.md` |
+| Raw reports and verdicts | `.claude/evals/<reviewer>/runs/` (gitignored) |
+| One line per sweep | `.claude/evals/<reviewer>/results.md` |
 
 Nothing case-specific goes into the plugin: it ships to every project that installs it.
 
 ## A case
 
-A mistake the project actually made and later corrected, replayed at the commit before the
-correction. `cases.json`:
+A mistake the reviewer missed or the project corrected by hand, replayed at the commit before
+the correction. Name it `<date of the incident>-<what went wrong>`.
 
-```json
-{
-  "skill": "design-review",
-  "profile": "profile.md",
-  "cases": [
-    {
-      "id": "model-override-env-var",
-      "sha": "82bc9f40b",
-      "mode": "proposal",
-      "input": "docs/superpowers/specs/2026-04-29-per-campaign-model-override-design.md",
-      "prompt": "per-campaign model override design is done (…) — check it before I commit",
-      "must_flag": ["Flags that … a second mechanism beside LeadCollectionTask.model …"],
-      "must_not_flag": [],
-      "fixed_by": "4d615b16a"
-    }
-  ]
-}
+```yaml
+id: 2026-04-29-model-override-env-var
+origin: "where it was caught — the review comment, or the commit that corrected it"
+before: eval/<reviewer>/<id>/before   # 82bc9f40
+after: eval/<reviewer>/<id>/after     # 4d615b16
+mode: proposal                        # reviewer-specific inputs, named as its dispatch names them:
+spec: docs/…/design.md                #   a spec, or base + feature + source_files + test_files
+expected:
+  - defect: >-
+      What is wrong, where, and what it should be instead.
+    match: >-
+      What counts as finding it — and what does not ("a generic 'extract a helper' without
+      pointing at the existing one is not a match").
 ```
 
-- **`sha`** — the commit the reviewer sees; the run gets a detached worktree there.
-- **`input`** — what is under review: a spec path, or a `base..head` range for a diff reviewer.
-- **`prompt`** — phrased the way the user would say it, without naming the skill or the answer:
-  the case measures triggering and finding together.
-- **`must_flag`** — one sentence per known mistake, specific enough that a grader can say yes or
-  no from the report alone.
-- **`must_not_flag`** — the false alarm a reviewer is tempted into. Each set carries at least one
-  **control**: the same input at its corrected commit (the other case's `fixed_by`; the control
-  names it in `control_for`), where the mistake is gone and `must_flag` is empty.
-- **`profile`** — frozen with the set. The live profile changes, and at an old `sha` it may not
-  exist yet. Its known-failures list must not describe any case's answer: a case whose lesson
-  was later written into the profile is retired, not kept with the answer in its prompt.
+- **`before` / `after` are tags, pushed to origin** — `eval/<reviewer>/<id>/before|after`. A
+  squash-merged branch leaves its commits unreachable, and GitHub drops unreachable objects; a
+  tag keeps them. The sha goes in a comment for a reader.
+- **`after`** is the corrected commit. A run there must flag none of `expected` — the false
+  alarm check, in the same case instead of a separate control.
+- **Inputs** are what the reviewer is dispatched with, not a user's phrasing. Whether the review
+  starts at all is the hook's or the caller's job, tested separately.
+- **`expected`** — one entry per defect; a judge answers one yes/no question per entry from the
+  report alone. `match` carries the edge cases, both ways. Fields that help a reader (`file`,
+  `lines`, the rule or test it breaks) are welcome; the judge needs only `defect` and `match`.
 
-## Grading
+## Rules, profiles and leaks
 
-Binary: each assertion passed or failed, with the evidence quoted. No scores. A case passes when
-every `must_flag`, every `must_not_flag` and every generic assertion pass.
+A rule or known-failure written because of a case's own incident makes that case easier — it may
+quote it. Two ways to handle it, depending on what the eval is for:
 
-An assertion that passes in both arms on every case measures nothing — drop it from the generic
-list rather than keep it for reassurance.
+- **Measuring the reviewer:** freeze the profile with the set, and retire a case whose answer
+  later went into it.
+- **Gating the rules too** (a change to `testing.md` should not lose a case): copy the project's
+  current rules into the worktree, record their sha in `results.md`, and read a hit on a case
+  older than its rule as weaker evidence.
+
+## Arms
+
+Two switches — the reviewer's prompt, and the project's instructions (`CLAUDE.md`, guidelines) —
+give four arms: `full`, `reviewer-only`, `rules-only`, `neither`. They tell apart a finding the
+reviewer earns from one the rules hand it, and a case every arm hits measures nothing: replace it.
+Comparing two versions of a reviewer is `full` against `full` at the old version.
+
+## Grading and results
+
+Binary: each `expected` entry, each generic assertion, hit or missed, with the quote that decided
+it. No scores. `results.md` gets one line per sweep and arm: date, plugin version (and the rules'
+sha when they are copied in), model, runs per case, cost, hits per case on `before`, entries still
+flagged on `after`.
+
+An assertion that passes in every arm on every case measures nothing — drop it.
 
 ## Running
 
-The `skill-creator` loop, per case: a worktree at `sha`, the profile copied in, one run with the
-skill and one without it (or with the previous version when the change is to the skill),
-three runs per arm when deciding whether a change helped. Grade, aggregate, compare the arms.
-
-A runner script waits until the loop has been run by hand often enough to know which steps
-repeat.
+Per case, arm and repeat: a detached worktree at the tag, the profile or rules copied in (or the
+instructions removed), a read-only headless run of the reviewer, a judge run with no tools that
+returns structured verdicts. The test reviewer's `run.py` (Rhumbler, `.claude/evals/test-reviewer/`)
+does this; it moves into the plugin once a second reviewer runs on it.
