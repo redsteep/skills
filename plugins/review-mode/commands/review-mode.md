@@ -48,6 +48,17 @@ opened earlier, to check the state, or to leave.
 Only on the user's explicit go-ahead. Then `done`, read the queue, and apply the
 whole list in one iteration — ordinary workflow, commits and all.
 
+**Then offer eval cases for what the reviewers missed.** An item that a reviewer
+should have caught — a test the test-strategy reviewer passed, a layering slip the
+architecture reviewer passed, a design flaw design-review passed — is a known
+answer the reviewer can be measured on. For each, offer a case for that reviewer's
+eval set (`.claude/evals/<reviewer>/`, whose `eval.yaml` names the reviewer;
+format in `redsteep/skills` `docs/reviewer-evals.md`): `before` is the commit `done`
+printed, `after` the commit that applied the item, `origin` the user's wording
+from the queue. List the candidates in one message; draft the case files and push
+the tags only for the ones the user picks. A matter of taste, or an item no
+reviewer is asked to check, gets no case. Skip when the project has no eval sets.
+
 **Then review the branch again before handing it back.** A queue of fixes is new
 code nobody has reviewed: when the `pre-pr-review` plugin is enabled, run its
 skill over the whole branch (it updates the open PR instead of creating one),

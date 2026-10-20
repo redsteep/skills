@@ -67,7 +67,10 @@ add)
 off|done)
   marker=$(resolve_marker "$branch_opt") || exit 1
   queue="$(dirname "$marker")/queue.md"
-  branch=$(jq -r .branch "$marker"); rm -f "$marker"
+  branch=$(jq -r .branch "$marker")
+  # The commit the queue was raised against: an eval case's `before` for each item a reviewer missed.
+  before=$(git -C "$(jq -r .worktree "$marker")" rev-parse --short HEAD 2>/dev/null) || before=""
+  rm -f "$marker"
   # grep -c prints 0 AND exits 1 on no match, so `|| echo 0` would yield "0\n0".
   n=$(grep -c '^- \[ \]' "$queue" 2>/dev/null) || true
   [[ "$n" =~ ^[0-9]+$ ]] || n=0
@@ -77,9 +80,9 @@ off|done)
     # Leaving hands the whole queue over for one iteration, so the next pass starts
     # empty; the list is kept beside it for reference, not shown again.
     applied="$(dirname "$queue")/applied-$(date +%Y%m%dT%H%M%S).md"
-    mv "$queue" "$applied"
-    echo "queue moved to $applied"
-    echo "after applying: run pre-pr-review over the branch, then 'review-mode.sh on <worktree>' for the next pass"
+    { [[ -n "$before" ]] && echo "<!-- before: $before -->"; cat "$queue"; } > "$applied" && rm -f "$queue"
+    echo "queue moved to $applied${before:+ (raised against $before)}"
+    echo "after applying: offer an eval case for each item a reviewer should have caught (before: ${before:-HEAD now}), run pre-pr-review over the branch, then 'review-mode.sh on <worktree>' for the next pass"
   fi
   ;;
 status)
