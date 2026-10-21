@@ -6,9 +6,12 @@ up to 10 unmarked items — in a report only; a human applies them.
 
 An item qualifies only if it goes from description to PR without a single
 architectural decision: no new mechanism, no options to choose between, no API
-contract change, no schema migration, nothing visible in the UI, and a concrete
-place to start. Zero PRs with an honest reason is a normal night. While the last
-night's PR is still open, nothing new is taken.
+contract change, no schema migration the item does not spell out, nothing
+visible in the UI, and a concrete place to start. A PR that adds a migration
+opens as a draft, gated on its production preconditions — the night run cannot
+see production data, the owner checks them before the merge. Zero PRs with an
+honest reason is a normal night. While the last night's PR is still open,
+nothing new is taken.
 
 ## Safety
 

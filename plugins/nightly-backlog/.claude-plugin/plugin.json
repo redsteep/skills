@@ -1,6 +1,6 @@
 {
   "name": "nightly-backlog",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Unattended night run: takes one allowed tech-debt item (GitHub issues by default, any backlog via the profile) to a PR — a draft only while a gate stays open — and proposes markings for a few more. A runner script for a timer, with a hard tool deny list, project housekeeping before and a project-defined notification after.",
   "author": {
     "name": "Stanislav Krasnoyarov",

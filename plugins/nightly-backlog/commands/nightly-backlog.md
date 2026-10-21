@@ -68,7 +68,7 @@ Even when allowed, drop an item if:
 - the fix introduces a new mechanism, abstraction, layer, module or pattern that the code does not have yet;
 - the item lists options, says "needs a decision", "discuss", "product question first" or "waiting";
 - the fix changes a public API contract or generated client types;
-- the fix needs a database schema migration;
+- the fix needs a database schema migration the item does not spell out. Spelled out means: the table and column, the operation and its choices (type, nullability, default, `ON DELETE`, index), how it rolls out (one step or staged), and the production precondition it relies on ("no row is NULL", "no duplicates"). The test: two careful engineers reading the item would write the same migration;
 - the fix is visible in the UI (a frontend change with nothing visible is fine);
 - the item does not name a concrete file / function to start from;
 - anything in **Profile → Not a night item** applies.
@@ -81,6 +81,7 @@ The ordinary cycle, as by day, no shortcuts:
 
 1. A worktree `nightly-<id>-<slug>` from the fresh default branch, made as **Profile → Worktree** says (generic: `git worktree add <repo>/.worktrees/nightly-<id>-<slug> -b nightly/<id>-<slug> origin/<default branch>`, then install what the package needs).
 2. Test first, watched red, then the fix — run as **Profile → Tests** says.
+   A schema migration also gets an upgrade → downgrade → upgrade round-trip on a real database.
 3. **Done**, if the profile's backlog has a step for the branch.
 4. 2–4 logical commits, explicit `git add` paths (never `-A`).
 5. Review. If the `pre-pr-review` skill is available, run it in full — it is an unattended run, so its extensions follow their `Unattended` setting. Night specifics:
@@ -88,7 +89,7 @@ The ordinary cycle, as by day, no shortcuts:
    - step 2 (if UI code was touched): run E2E via the subagent, but do not leave an app running for the human — write in the PR which screens to look at.
 
    Without that skill: read the whole diff against the repo's own conventions, and run its lint / type-check over the changed files.
-6. `REVIEWED=1 gh pr create`, title prefixed `[nightly]`, body: the **Link**, the review summary, open questions. Add `--draft` only when the review left a gate open — an extension with `Unattended: draft` triggered and not run — and name it in the body as `pre-pr-review` says; undrafting is then the owner's, after the gate. Open questions in the body are not a gate: they are read before the merge either way.
+6. `REVIEWED=1 gh pr create`, title prefixed `[nightly]`, body: the **Link**, the review summary, open questions. Add `--draft` only when the review left a gate open — an extension with `Unattended: draft` triggered and not run — and name it in the body as `pre-pr-review` says; undrafting is then the owner's, after the gate. Open questions in the body are not a gate: they are read before the merge either way. A PR that adds a schema migration is always a draft: you cannot see production data, so the gate is its production preconditions — each as a query with the result it must return — for the owner to run before the merge.
 
 Stuck — stop, do not open a PR. Stuck means: a red baseline; the test does not reproduce the problem; the fix pulls in a module the item does not name; a choice between two designs appeared that no existing pattern settles. Remove the worktree (Profile → Worktree; generic: `git worktree remove` + delete the branch), and put in the report the reason and which question a human has to settle for the item to become a night one.
 
