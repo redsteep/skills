@@ -407,6 +407,23 @@ def run_one(ev: Eval, case: dict, arm: str, rules: str, side: str, rep: int, swe
             "committed_diff": sh("git", "diff", f"{ref}..HEAD", cwd=worktree),
             "head": sh("git", "rev-parse", "HEAD", cwd=worktree),
         }
+        # A chain's later stages edit the files its earlier ones wrote -- the review step applies
+        # its findings to the same test files the write step created -- so base..HEAD is the round's
+        # outcome, not any one stage's artifact. The commits are what separate them.
+        log = sh("git", "log", "--reverse", "--format=%H %s", f"{ref}..HEAD", cwd=worktree)
+        artifacts["commits"] = [
+            {"sha": line.split(" ", 1)[0], "subject": line.split(" ", 1)[1] if " " in line else ""}
+            for line in log.splitlines()
+        ]
+        artifacts["commit_diffs"] = {
+            c["sha"]: sh("git", "show", "--format=", c["sha"], cwd=worktree)
+            for c in artifacts["commits"]
+        }
+        # A worktree shares the repo's object database, so removing it only unreferences what the
+        # run committed -- the objects are still there until a gc prunes them. One ref keeps a
+        # stage's own commit gradeable afterwards, and startable from.
+        if artifacts["commits"]:
+            sh("git", "update-ref", f"refs/eval/{sweep_dir.name}/{name}", artifacts["head"], cwd=ev.repo)
         # The transcript was the one artifact the runner did not own: the grader globbed the CLI's
         # directory for it at grade time, so a $7 run's review verdict rested on a file the sweep
         # could not produce again. `transcript` is the path a grader reads.
@@ -425,6 +442,8 @@ def run_one(ev: Eval, case: dict, arm: str, rules: str, side: str, rep: int, swe
     for key in ("diff", "committed_diff"):
         if artifacts.get(key):
             (sweep_dir / f"{name}.{key}").write_text(artifacts[key])
+    for i, commit in enumerate(artifacts.get("commits", []), 1):
+        (sweep_dir / f"{name}.{i}-{commit['sha'][:8]}.diff").write_text(artifacts["commit_diffs"][commit["sha"]])
 
     seconds = wall_seconds(Path(artifacts["transcript"])) if artifacts.get("transcript") else None
     contract = list(getattr(ev.adapter, "CONTRACT", []))
@@ -458,6 +477,10 @@ def run_one(ev: Eval, case: dict, arm: str, rules: str, side: str, rep: int, swe
         "permission_denials": [_denial(d) for d in review.get("permission_denials", [])],
         "models": sorted(review.get("modelUsage", {})),
         "session_id": review.get("session_id", ""),
+        # Without these a verdict cannot be re-examined at all: the worktree is gone and nothing
+        # else records which commits the run made.
+        "head": artifacts.get("head", ""),
+        "commits": artifacts.get("commits", []),
         "review_cost_usd": round(review.get("total_cost_usd", 0), 2),
         "judge_cost_usd": round(judge.get("total_cost_usd", 0), 2),
         "duration_s": round(seconds if seconds is not None else review.get("duration_ms", 0) / 1000),

@@ -106,9 +106,15 @@ lives in the eval dir (`adapter: adapter.py`) when no plugin is under test:
 
 | Name | What |
 |---|---|
-| `grade(case, artifacts)` | verdicts from the run's own leftovers — `final_text`, `diff`, `committed_diff`, `head`, `session_id`, and `transcript`, the run's session transcript copied into the sweep |
+| `grade(case, artifacts)` | verdicts from the run's own leftovers — `final_text`, `diff`, `committed_diff`, `head`, `session_id`, `transcript` (the run's session transcript, copied into the sweep), and `commits` + `commit_diffs` (what it committed, in order) |
 | `summarise(case, results)` | that kind's fragment of the results line, instead of imposed `n/m` arithmetic |
 | `REPLACE_TOOLS` / `MAIN_AGENT` / `PLUGIN` | drop the read-only base tools; run as the session's own agent; put a plugin on disk at `--plugin-ver` |
+
+A kind whose run commits more than once needs `commits`, not `committed_diff`: in a chain the
+review step applies its findings to the files the write step created, so `base..HEAD` is the round's
+outcome and no single stage's artifact. The commits separate them, and a ref under `refs/eval/` keeps
+them reachable after the worktree is gone — they were never copied anywhere, a worktree shares the
+repo's object database, so removing it only unreferences them.
 
 `grade` need not settle everything. An entry it returns as
 `{"verdict": "JUDGE", "question": ..., "text": ...}` is scored by the judge in the same run and comes
