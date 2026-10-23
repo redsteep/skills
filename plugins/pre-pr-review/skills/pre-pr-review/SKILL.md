@@ -137,6 +137,8 @@ A partial dispatch is not a pass: wait for all three, then check each criterion.
 
 One failed criterion stops the review; the other two reports stay valid and are not re-run when that one is fixed.
 
+A report's **issue count is not its content**: an observation a reviewer raised and then labelled acceptable, deliberate or out of scope is a finding without a verdict, so decide it in step 5 or 6 and say the decision, or carry it to the user — never relay the count and drop the note.
+
 The reviewers check against the rules files in **Profile → Guidelines** — the same files the project loads while the code is written. Their **Missing rules** go to the user as proposed amendments to those files (file + wording), not into the PR and not into a reviewer prompt; a rule that lives only in a reviewer is invisible while the code is written.
 
 ## Step 4: Manual mutation testing — `pre-pr-review:mutation-tester`
@@ -253,6 +255,7 @@ Then run the triggered `after-pr` entries.
 | "Architecture looks fine from the diff" | Read the files the diff touches |
 | "Step 3 already covered the tests" | Step 4 measures it — watch what survives |
 | "Nothing to refactor" | Decide after reading every SOURCE_FILE |
+| "The reviewer reported 0 issues" | Read the report, not its count — a note it cleared is still your call |
 | "This change can't trigger that extension" | Its path list decides, not the reviewer |
 | "Green" (with skips) | Skipped tests are not passing ones — count them |
 
