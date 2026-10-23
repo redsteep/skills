@@ -19,9 +19,11 @@ side of the setup, and `cases/*.yaml`, each pointing at tagged commits of that p
 
 An adapter decides what a run *is*. A reviewer's reads and reports, and is judged by a model. One
 that names Edit/Write in `TOOLS` writes code, and is graded by its own `grade(case, artifacts)` over
-the worktree's diff -- no judge, since a shape is matched rather than interpreted; `REPLACE_TOOLS`
-drops the read-only base set so the tool list is exactly what the case was measured with, and
-`summarise(case, results)` writes the results line's fragment. The four powerful tools (Edit, Write,
+the worktree's diff, which matches a shape rather than interpreting one; `REPLACE_TOOLS` drops the
+read-only base set so the tool list is exactly what the case was measured with, and
+`summarise(case, results)` writes the results line's fragment. An entry `grade` cannot settle by
+shape -- whether something was *decided* -- comes back as `{"verdict": "JUDGE", "question": ...,
+"text": ...}` and is scored by the judge, marked `judged` so a reader can tell the two apart. The four powerful tools (Edit, Write,
 Agent, Skill) are denied unless `TOOLS` asks for them, so a reviewer adapter's flags are unchanged.
 
 `eval.yaml` names the reviewer as `<plugin>/<adapter>`: the module
@@ -85,6 +87,28 @@ WORKTREE = "worktree"  # --rules value: the checkout as it is, uncommitted edits
 # runs the real skill on the version an incident ran under.
 PLUGIN_CACHE = Path.home() / ".claude" / "plugins" / "cache" / "redsteep"
 _PLACEHOLDER = re.compile(r"\{[A-Z][A-Z_]+\}")
+
+# A grader's open question: what has no shape to match -- whether something was *decided* -- comes
+# back from the adapter as JUDGE with the text that answers it, and is scored here rather than left
+# as a string for a human to go and read.
+OPEN_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "verdicts": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "index": {"type": "integer"},
+                    "hit": {"type": "boolean"},
+                    "quote": {"type": "string"},
+                },
+                "required": ["index", "hit", "quote"],
+            },
+        },
+    },
+    "required": ["verdicts"],
+}
 
 JUDGE_SCHEMA = {
     "type": "object",
@@ -227,11 +251,16 @@ def judge_prompt(case: dict, contract: list[str], report: str) -> str:
 
 
 def claude(prompt: str, cwd: Path, extra: list[str], env: dict | None = None) -> dict:
-    out = subprocess.run(
-        ["claude", "-p", "--output-format", "json", *extra],
-        input=prompt, cwd=cwd, capture_output=True, text=True, timeout=3600,
-        env={**os.environ, **(env or {})},
-    )
+    try:
+        out = subprocess.run(
+            ["claude", "-p", "--output-format", "json", *extra],
+            input=prompt, cwd=cwd, capture_output=True, text=True, timeout=3600,
+            env={**os.environ, **(env or {})},
+        )
+    except subprocess.TimeoutExpired:
+        # A chained kind can hang for the whole hour. One job's hang is one job's loss; the sweep's
+        # other arms are already paid for.
+        return {"is_error": True, "result": "timed out after 3600s", "total_cost_usd": 0}
     try:
         return json.loads(out.stdout)
     except json.JSONDecodeError:
@@ -242,6 +271,62 @@ def _denial(d: dict) -> dict:
     tool_input = d.get("tool_input") or {}
     detail = tool_input.get("command") or tool_input.get("file_path") or tool_input.get("path") or tool_input.get("pattern")
     return {"tool": d.get("tool_name"), "input": detail if detail is not None else tool_input}
+
+
+def transcript_of(session_id: str) -> Path | None:
+    """The run's own session transcript. A dispatched subagent's report is nowhere in
+    `--output-format json`; it is in here, so for a chained kind this file *is* the middle stage's
+    only artifact -- and it lives outside the sweep, in the CLI's own directory, on the CLI's own
+    rotation schedule. The runner copies it in so a verdict stays re-gradable after that."""
+    hits = sorted((Path.home() / ".claude" / "projects").glob(f"*/{session_id}.jsonl"))
+    return hits[0] if hits else None
+
+
+def wall_seconds(path: Path) -> float | None:
+    """How long the run really took, from the transcript's own timestamps. The CLI's `duration_ms`
+    describes its last segment only -- 63s against a measured 582s on a chained run -- so for a kind
+    that dispatches, the number it reports is not the run's."""
+    stamps = []
+    for line in path.open():
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if entry.get("timestamp"):
+            stamps.append(entry["timestamp"])
+    if len(stamps) < 2:
+        return None
+    first, last = (datetime.datetime.fromisoformat(s.replace("Z", "+00:00")) for s in (stamps[0], stamps[-1]))
+    return (last - first).total_seconds()
+
+
+def judge_open(verdicts: list[dict], cwd: Path) -> dict:
+    """Score the entries a grader left open, in one call. `judged` marks a verdict a model gave, so
+    a reader can tell it from a shape matched in a diff -- and the quote is what it decided on."""
+    open_ = [v for v in verdicts if v.get("verdict") == "JUDGE" and v.get("question") and v.get("text")]
+    if not open_:
+        return {"total_cost_usd": 0}
+    asked = "\n\n".join(
+        f"[{i}] question: {v['question'].strip()}\n\n## The text to answer [{i}] from\n{v['text']}"
+        for i, v in enumerate(open_)
+    )
+    judge = claude(
+        "You answer one yes/no question per item, each from its own text and from nothing else.\n"
+        "`hit` is true when the answer is yes. Quote the line that decides it: the one that makes it\n"
+        "yes, or, when the answer is no, the nearest thing to it, so a reader can check you.\n\n" + asked,
+        cwd,
+        ["--setting-sources", "", "--strict-mcp-config", "--tools", "", "--model", JUDGE_MODEL,
+         "--json-schema", json.dumps(OPEN_SCHEMA)],
+    )
+    answers = {a["index"]: a for a in (judge.get("structured_output") or {}).get("verdicts", [])}
+    for i, v in enumerate(open_):
+        # The text is already saved beside the report; inlining it in the verdict JSON would put a
+        # whole subagent report in a file meant to be read at a glance.
+        del v["text"]
+        if (answer := answers.get(i)) is None:
+            continue
+        v.update(verdict="RIGHT" if answer["hit"] else "WRONG", quote=answer["quote"], judged=True)
+    return {**judge, "open": len(open_), "answered": sum(1 for v in open_ if v.get("judged"))}
 
 
 def plugin_dir(name: str, ver: str | None) -> Path:
@@ -299,10 +384,14 @@ def run_one(ev: Eval, case: dict, arm: str, rules: str, side: str, rep: int, swe
         if dry:
             print(f"{name}: tools={tools} denied={off_limits} prompt={len(prompt)}c", flush=True)
             return {"case": case["id"], "arm": arm, "rules": rules, "side": side, "rep": rep, "dry": True}
+        # `model:` in eval.yaml is passed, not merely recorded: a sweep that means to pin its model
+        # and relies on the CLI default instead measures whatever the operator's session happened to
+        # be set to, under a results line that names a model.
+        model = ["--model", ev.config["model"]] if ev.config.get("model") else []
         review = claude(
             prompt,
             worktree,
-            [*SESSION_FLAGS, *session, "--allowedTools", *tools,
+            [*SESSION_FLAGS, *session, *model, "--allowedTools", *tools,
              *(["--disallowedTools", *off_limits] if off_limits else [])],
             env={"CLAUDE_PLUGIN_ROOT": str(ev.plugin or "")},
         )
@@ -318,8 +407,17 @@ def run_one(ev: Eval, case: dict, arm: str, rules: str, side: str, rep: int, swe
             "committed_diff": sh("git", "diff", f"{ref}..HEAD", cwd=worktree),
             "head": sh("git", "rev-parse", "HEAD", cwd=worktree),
         }
+        # The transcript was the one artifact the runner did not own: the grader globbed the CLI's
+        # directory for it at grade time, so a $7 run's review verdict rested on a file the sweep
+        # could not produce again. `transcript` is the path a grader reads.
+        if source := transcript_of(artifacts["session_id"]):
+            destination = sweep_dir / f"{name}.transcript.jsonl"
+            shutil.copyfile(source, destination)
+            artifacts["transcript"] = str(destination)
     finally:
-        sh("git", "worktree", "remove", "--force", str(worktree), cwd=ev.repo)
+        # check=False: a failing removal must not replace the real exception with its own.
+        subprocess.run(["git", "worktree", "remove", "--force", str(worktree)],
+                       cwd=ev.repo, capture_output=True, text=True)
     report = review.get("result", "")
     (sweep_dir / f"{name}.report.md").write_text(report)
     # A verdict that surprises you has to be re-examinable without archaeology: the worktree is
@@ -328,13 +426,16 @@ def run_one(ev: Eval, case: dict, arm: str, rules: str, side: str, rep: int, swe
         if artifacts.get(key):
             (sweep_dir / f"{name}.{key}").write_text(artifacts[key])
 
+    seconds = wall_seconds(Path(artifacts["transcript"])) if artifacts.get("transcript") else None
     contract = list(getattr(ev.adapter, "CONTRACT", []))
     grade = getattr(ev.adapter, "grade", None)
     if grade:
-        # A shape in a diff is matched, not interpreted: no judge model, so no judge cost and no
-        # judge error. The adapter returns the same list-of-dicts the judge would.
-        judge = {"total_cost_usd": 0}
+        # A shape in a diff is matched, not interpreted -- no judge for those. What the grader
+        # leaves open it hands back as JUDGE with the question and the text, and the judge scores
+        # that: the two are not alternatives, and a kind that matches stage 1 and asks about stage 2
+        # needs both in one verdict.
         verdicts, held = grade(case, artifacts), []
+        judge = judge_open(verdicts, worktree_root)
     else:
         judge = claude(
             judge_prompt(case, contract, report),
@@ -350,7 +451,7 @@ def run_one(ev: Eval, case: dict, arm: str, rules: str, side: str, rep: int, swe
         "hits": [v["hit"] for v in verdicts if "hit" in v], "verdicts": verdicts,
         "contract": [c["held"] for c in held], "contract_verdicts": held,
         "review_error": review.get("is_error", False),
-        "judge_error": False if grade else (
+        "judge_error": judge.get("open", 0) != judge.get("answered", 0) if grade else (
             len(verdicts) != len(case["expected"]) or len(held) != len(contract)),
         # A tool the reviewer needed and was refused: its report is short of what it could see. The
         # command or path says which allow rule is missing.
@@ -359,7 +460,7 @@ def run_one(ev: Eval, case: dict, arm: str, rules: str, side: str, rep: int, swe
         "session_id": review.get("session_id", ""),
         "review_cost_usd": round(review.get("total_cost_usd", 0), 2),
         "judge_cost_usd": round(judge.get("total_cost_usd", 0), 2),
-        "duration_s": round(review.get("duration_ms", 0) / 1000),
+        "duration_s": round(seconds if seconds is not None else review.get("duration_ms", 0) / 1000),
     }
     (sweep_dir / f"{name}.verdict.json").write_text(json.dumps(result, indent=2))
     denied = f" denied={[d['tool'] for d in result['permission_denials']]}" if result["permission_denials"] else ""
@@ -434,6 +535,10 @@ def main() -> None:
     for rules in variants:
         if rules != WORKTREE:
             sh("git", "rev-parse", "--verify", "--quiet", f"{rules}^{{commit}}", cwd=ev.repo)
+    # A kind that needs a plugin on disk is checked here, not inside the first job: by then other
+    # jobs are running and a bad `--plugin-ver` costs their results, not just its own.
+    if plugin_name := getattr(ev.adapter, "PLUGIN", None):
+        plugin_dir(plugin_name, args.plugin_ver)
     tags = f"refs/tags/{ev.config['tag_prefix']}/*"
     sh("git", "fetch", "origin", f"{tags}:{tags}", cwd=ev.repo)
 
@@ -453,10 +558,29 @@ def main() -> None:
         for rep in range(1, args.repeat + 1)
     ]
     print(f"{len(jobs)} runs{' (dry)' if args.dry_run else ''} → {sweep_dir}", flush=True)
+    results = []
     with concurrent.futures.ThreadPoolExecutor(args.concurrency) as pool:
-        results = list(pool.map(
-            lambda j: run_one(ev, j[0], j[1], j[2], j[3], j[4], sweep_dir, worktree_root,
-                              len(variants) > 1, args.dry_run, args.plugin_ver), jobs))
+        futures = {
+            pool.submit(run_one, ev, *job, sweep_dir, worktree_root, len(variants) > 1,
+                        args.dry_run, args.plugin_ver): job
+            for job in jobs
+        }
+        for future in concurrent.futures.as_completed(futures):
+            case, arm, rules, side, rep = futures[future]
+            try:
+                results.append(future.result())
+            except (Exception, SystemExit) as exc:  # noqa: BLE001 -- one job's failure, not the sweep's
+                # Every model call is paid for before anything downstream can fail, and a raise here
+                # used to discard the results line of every job that had finished. Record it and
+                # summarise what did run.
+                print(f"{case['id']}.{arm}.{side}.{rep}: FAILED {type(exc).__name__}: {exc}", flush=True)
+                results.append({
+                    "case": case["id"], "arm": arm, "rules": rules, "side": side, "rep": rep,
+                    "hits": [], "verdicts": [], "contract": [], "contract_verdicts": [],
+                    "review_error": True, "judge_error": False, "permission_denials": [],
+                    "models": [], "session_id": "", "review_cost_usd": 0, "judge_cost_usd": 0,
+                    "duration_s": 0, "failure": f"{type(exc).__name__}: {exc}",
+                })
     shutil.rmtree(worktree_root, ignore_errors=True)
     if args.dry_run:
         return

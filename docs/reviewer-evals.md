@@ -101,6 +101,23 @@ The runner is generic; what differs per reviewer is an **adapter** that ships wi
 | `inputs(case, worktree, config)` | `{PLACEHOLDER: value}`, filled the way the caller fills it; an unfilled placeholder fails the run |
 | `plain_prompt(case, worktree, inputs)` | the ask of the arms without the reviewer |
 
+A kind whose artifact is code, not a report, grades itself instead of being judged, and its adapter
+lives in the eval dir (`adapter: adapter.py`) when no plugin is under test:
+
+| Name | What |
+|---|---|
+| `grade(case, artifacts)` | verdicts from the run's own leftovers — `final_text`, `diff`, `committed_diff`, `head`, `session_id`, and `transcript`, the run's session transcript copied into the sweep |
+| `summarise(case, results)` | that kind's fragment of the results line, instead of imposed `n/m` arithmetic |
+| `REPLACE_TOOLS` / `MAIN_AGENT` / `PLUGIN` | drop the read-only base tools; run as the session's own agent; put a plugin on disk at `--plugin-ver` |
+
+`grade` need not settle everything. An entry it returns as
+`{"verdict": "JUDGE", "question": ..., "text": ...}` is scored by the judge in the same run and comes
+back `RIGHT`/`WRONG` with the quote it decided on, marked `judged` — so one verdict can match a shape
+in a diff at one stage and ask a question at the next, which is what a chained kind needs. Deciding
+by shape where a shape exists is not a preference: a review grade keyed on a literal fixture name
+scored a renamed fixture as never mentioned, and the same grade keyed on section membership then
+scored it as correct, because the name appeared inside another issue's text.
+
 The project's `eval.yaml`:
 
 ```yaml
