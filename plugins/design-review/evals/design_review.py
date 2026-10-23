@@ -1,6 +1,6 @@
 """Eval adapter for the design reviewer (`design-reviewer.md`).
 
-Run by `tools/reviewer-eval/run.py`. The reviewer gets what step 2 of the skill fills in: the spec,
+Run by `tools/agent-eval/run.py`. The reviewer gets what step 2 of the skill fills in: the spec,
 the repo, the profile and the mode. A case adds `spec` and `mode` (`proposal` | `drift`). The
 project's eval.yaml copies its frozen profile in as `.claude/design-review.md`.
 """

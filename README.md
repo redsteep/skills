@@ -44,5 +44,5 @@ plugins/<name>/
   README.md
   skills/ commands/ agents/ hooks/ scripts/   whatever the plugin needs
 docs/reviewer-evals.md            how a reviewer plugin is measured; cases live in the project
-tools/reviewer-eval/run.py        the runner for those evals (adapters: plugins/<name>/evals/)
+tools/agent-eval/run.py        the runner for those evals (adapters: plugins/<name>/evals/)
 ```

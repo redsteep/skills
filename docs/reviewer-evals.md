@@ -81,7 +81,7 @@ An assertion that passes in every arm on every case measures nothing — drop it
 ## Running
 
 ```
-python3 tools/reviewer-eval/run.py <project>/.claude/evals/<reviewer> \
+python3 tools/agent-eval/run.py <project>/.claude/evals/<reviewer> \
     [--case GLOB] [--arms full,neither] [--after-arms full] [--repeat 3] [-j 3]
 ```
 
@@ -116,7 +116,7 @@ inputs: {}                     # the adapter's own settings
 ### Would my edit of the instructions work better?
 
 ```
-python3 tools/reviewer-eval/run.py <eval-dir> --rules HEAD --rules worktree --repeat 3
+python3 tools/agent-eval/run.py <eval-dir> --rules HEAD --rules worktree --repeat 3
 ```
 
 `--rules` says where the repo-side `copy_in` files (`from: /path`) come from: `worktree` — the

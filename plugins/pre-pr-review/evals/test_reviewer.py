@@ -1,6 +1,6 @@
 """Eval adapter for step 3's test reviewer (the `pre-pr-review:test-reviewer` agent).
 
-Run by `tools/reviewer-eval/run.py`. The reviewer arms run the plugin's agent itself, from this
+Run by `tools/agent-eval/run.py`. The reviewer arms run the plugin's agent itself, from this
 checkout, with the message `scripts/reviewer-inputs.py` generates — the same message the plugin's
 hook puts in place of a real dispatch's prompt — so the eval measures what a review sends. The
 input generator reads the source/test layout from the profile's `pre-pr-review-layout` block,

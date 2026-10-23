@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run a reviewer over a project's eval cases and judge each report against what the case expects.
 
-    python3 tools/reviewer-eval/run.py <eval-dir> [--case GLOB] [--arms full,...] [--repeat N]
+    python3 tools/agent-eval/run.py <eval-dir> [--case GLOB] [--arms full,...] [--repeat N]
                                                   [--after-arms full] [--rules REV ...] [-j 3]
 
 Would the instruction edit I am making work better?
@@ -16,6 +16,13 @@ the revision, or with the files that differ from HEAD.
 <eval-dir> lives in the project (e.g. `.claude/evals/test-reviewer`): `eval.yaml`, the project's
 side of the setup, and `cases/*.yaml`, each pointing at tagged commits of that project. Format:
 `docs/reviewer-evals.md`.
+
+An adapter decides what a run *is*. A reviewer's reads and reports, and is judged by a model. One
+that names Edit/Write in `TOOLS` writes code, and is graded by its own `grade(case, artifacts)` over
+the worktree's diff -- no judge, since a shape is matched rather than interpreted; `REPLACE_TOOLS`
+drops the read-only base set so the tool list is exactly what the case was measured with, and
+`summarise(case, results)` writes the results line's fragment. The four powerful tools (Edit, Write,
+Agent, Skill) are denied unless `TOOLS` asks for them, so a reviewer adapter's flags are unchanged.
 
 `eval.yaml` names the reviewer as `<plugin>/<adapter>`: the module
 `plugins/<plugin>/evals/<adapter>.py` of this repo, which knows the reviewer's template and how
@@ -113,9 +120,18 @@ class Eval:
         self.dir = eval_dir
         self.repo = Path(sh("git", "rev-parse", "--show-toplevel", cwd=eval_dir))
         self.config = yaml.safe_load((eval_dir / "eval.yaml").read_text())
-        plugin, adapter = self.config["reviewer"].split("/")
-        self.plugin = SKILLS / "plugins" / plugin
-        path = self.plugin / "evals" / f"{adapter}.py"
+        # `reviewer: <plugin>/<adapter>` -- a plugin's reviewer is the subject, and its version goes
+        # into every results line. `adapter: <file>.py` -- a kind with no plugin under test, where
+        # the project's own rules are the subject and `record_shas` carries the version; the adapter
+        # then lives in the eval dir beside the cases.
+        if "reviewer" in self.config:
+            plugin, adapter = self.config["reviewer"].split("/")
+            self.plugin: Path | None = SKILLS / "plugins" / plugin
+            path = self.plugin / "evals" / f"{adapter}.py"
+        else:
+            self.plugin = None
+            adapter = Path(self.config["adapter"]).stem
+            path = eval_dir / self.config["adapter"]
         spec = importlib.util.spec_from_file_location(adapter, path)
         if spec is None or spec.loader is None:
             raise SystemExit(f"no adapter at {path}")
@@ -140,7 +156,7 @@ class Eval:
                                       check=True, capture_output=True, text=True).stdout
             dest = worktree / entry.get("to", entry["from"].lstrip("/"))
             dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_text(text.replace("${CLAUDE_PLUGIN_ROOT}", str(self.plugin)))
+            dest.write_text(text.replace("${CLAUDE_PLUGIN_ROOT}", str(self.plugin or "")))
 
     def rules_label(self, rules: str) -> str:
         """What the repo-side files were, for the results line. A sha alone would claim a commit's
@@ -154,6 +170,8 @@ class Eval:
         return "rules worktree (uncommitted: " + ", ".join(Path(l[3:]).name for l in dirty) + ")"
 
     def reviewer_prompt(self, inputs: dict) -> str:
+        if self.plugin is None:
+            raise SystemExit("TEMPLATE needs a plugin; an eval-dir adapter must define plain_prompt")
         prompt = (self.plugin / self.adapter.TEMPLATE).read_text().replace("${CLAUDE_PLUGIN_ROOT}", str(self.plugin))
         for key, value in inputs.items():
             prompt = prompt.replace("{" + key + "}", value)
@@ -164,8 +182,10 @@ class Eval:
         return prompt
 
     def header(self) -> str:
-        version = json.loads((self.plugin / ".claude-plugin/plugin.json").read_text())["version"]
-        parts = [f"{self.plugin.name} {version} ({sh('git', 'rev-parse', '--short', 'HEAD', cwd=SKILLS)})"]
+        parts = []
+        if self.plugin is not None:
+            version = json.loads((self.plugin / ".claude-plugin/plugin.json").read_text())["version"]
+            parts.append(f"{self.plugin.name} {version} ({sh('git', 'rev-parse', '--short', 'HEAD', cwd=SKILLS)})")
         for rel in self.config.get("record_shas", []):
             parts.append(f"{Path(rel).name} {sh('git', 'log', '-1', '--format=%h', '--', rel, cwd=self.repo)}")
         return " · ".join(parts)
@@ -218,7 +238,7 @@ def _denial(d: dict) -> dict:
 
 
 def run_one(ev: Eval, case: dict, arm: str, rules: str, side: str, rep: int, sweep_dir: Path,
-            worktree_root: Path, tag_rules: bool) -> dict:
+            worktree_root: Path, tag_rules: bool, dry: bool = False) -> dict:
     use_reviewer, use_instructions = ARMS[arm]
     variant = f".{re.sub(r'[^A-Za-z0-9_-]', '_', rules)}" if tag_rules else ""
     name = f"{case['id']}.{arm}{variant}.{side}.{rep}"
@@ -242,37 +262,62 @@ def run_one(ev: Eval, case: dict, arm: str, rules: str, side: str, rep: int, swe
             prompt, session = ev.reviewer_prompt(inputs), ["--agent", "general-purpose"]
         else:
             prompt, session = ev.adapter.plain_prompt(case, worktree, inputs), ["--agent", "general-purpose"]
-        tools = [*BASE_TOOLS, *getattr(ev.adapter, "TOOLS", [])]
+        # A kind whose artifact is code *replaces* the read-only base set rather than extending it:
+        # the recorded implementer runs had no Bash at all, and `Bash(git:*)` would be a different
+        # environment from the one their results line was measured in.
+        base = [] if getattr(ev.adapter, "REPLACE_TOOLS", False) else [*BASE_TOOLS]
+        tools = base + [*getattr(ev.adapter, "TOOLS", [])]
         if use_reviewer and agent:
             tools.append("Bash")  # the agent's own `tools:` line has unrestricted Bash, as in a real review
+        # The four powerful tools stay denied unless the adapter asked for them -- read-only for a
+        # reviewer, Edit/Write for an implementer, Agent/Skill for a run of the real skill. One rule
+        # instead of a per-kind switch, and a reviewer adapter's flags come out unchanged.
+        off_limits = [t for t in ("Edit", "Write", "Agent", "Skill") if t not in tools]
+        if dry:
+            print(f"{name}: tools={tools} denied={off_limits} prompt={len(prompt)}c", flush=True)
+            return {"case": case["id"], "arm": arm, "rules": rules, "side": side, "rep": rep, "dry": True}
         review = claude(
             prompt,
             worktree,
             [*SESSION_FLAGS, *session, "--allowedTools", *tools,
-             "--disallowedTools", "Edit", "Write", "Agent", "Skill"],
-            env={"CLAUDE_PLUGIN_ROOT": str(ev.plugin)},
+             *(["--disallowedTools", *off_limits] if off_limits else [])],
+            env={"CLAUDE_PLUGIN_ROOT": str(ev.plugin or "")},
         )
+        # The artifact of a writing kind is the worktree, which the `finally` is about to delete.
+        artifacts = {
+            "final_text": review.get("result", ""),
+            "diff": sh("git", "diff", cwd=worktree),
+            "head": sh("git", "rev-parse", "HEAD", cwd=worktree),
+        }
     finally:
         sh("git", "worktree", "remove", "--force", str(worktree), cwd=ev.repo)
     report = review.get("result", "")
     (sweep_dir / f"{name}.report.md").write_text(report)
 
     contract = list(getattr(ev.adapter, "CONTRACT", []))
-    judge = claude(
-        judge_prompt(case, contract, report),
-        worktree_root,
-        ["--setting-sources", "", "--strict-mcp-config", "--tools", "", "--model", JUDGE_MODEL,
-         "--json-schema", json.dumps(JUDGE_SCHEMA)],
-    )
-    verdict = judge.get("structured_output") or {}
-    verdicts = sorted(verdict.get("verdicts", []), key=lambda v: v["index"])
-    held = sorted(verdict.get("contract", []), key=lambda v: v["index"])
+    grade = getattr(ev.adapter, "grade", None)
+    if grade:
+        # A shape in a diff is matched, not interpreted: no judge model, so no judge cost and no
+        # judge error. The adapter returns the same list-of-dicts the judge would.
+        judge = {"total_cost_usd": 0}
+        verdicts, held = grade(case, artifacts), []
+    else:
+        judge = claude(
+            judge_prompt(case, contract, report),
+            worktree_root,
+            ["--setting-sources", "", "--strict-mcp-config", "--tools", "", "--model", JUDGE_MODEL,
+             "--json-schema", json.dumps(JUDGE_SCHEMA)],
+        )
+        verdict = judge.get("structured_output") or {}
+        verdicts = sorted(verdict.get("verdicts", []), key=lambda v: v["index"])
+        held = sorted(verdict.get("contract", []), key=lambda v: v["index"])
     result = {
         "case": case["id"], "arm": arm, "rules": rules, "side": side, "rep": rep,
-        "hits": [v["hit"] for v in verdicts], "verdicts": verdicts,
+        "hits": [v["hit"] for v in verdicts if "hit" in v], "verdicts": verdicts,
         "contract": [c["held"] for c in held], "contract_verdicts": held,
         "review_error": review.get("is_error", False),
-        "judge_error": len(verdicts) != len(case["expected"]) or len(held) != len(contract),
+        "judge_error": False if grade else (
+            len(verdicts) != len(case["expected"]) or len(held) != len(contract)),
         # A tool the reviewer needed and was refused: its report is short of what it could see. The
         # command or path says which allow rule is missing.
         "permission_denials": [_denial(d) for d in review.get("permission_denials", [])],
@@ -283,16 +328,23 @@ def run_one(ev: Eval, case: dict, arm: str, rules: str, side: str, rep: int, swe
     }
     (sweep_dir / f"{name}.verdict.json").write_text(json.dumps(result, indent=2))
     denied = f" denied={[d['tool'] for d in result['permission_denials']]}" if result["permission_denials"] else ""
-    print(f"{name}: hits={result['hits']} contract={result['contract']}{denied} "
+    shown = result["hits"] or [v.get("verdict") for v in verdicts]
+    print(f"{name}: {shown} contract={result['contract']}{denied} "
           f"${result['review_cost_usd']} {result['duration_s']}s", flush=True)
     return result
 
 
-def summary_line(sweep: str, arm: str, rules: str, cases: list[dict], results: list[dict], header: str,
-                 repeat: int) -> str:
+def summary_line(ev: Eval, sweep: str, arm: str, rules: str, cases: list[dict], results: list[dict],
+                 header: str, repeat: int) -> str:
     mine = [r for r in results if r["arm"] == arm and r["rules"] == rules]
+    # A kind graded on a shape has no hit count -- WRONG/RIGHT/NEITHER is the verdict -- so its
+    # adapter writes its own fragment instead of having n/m arithmetic imposed on it.
+    summarise = getattr(ev.adapter, "summarise", None)
     parts = []
     for case in cases:
+        if summarise:
+            parts.append(summarise(case, [r for r in mine if r["case"] == case["id"]]))
+            continue
         before = [r for r in mine if r["case"] == case["id"] and r["side"] == "before"]
         after = [r for r in mine if r["case"] == case["id"] and r["side"] == "after"]
         part = f"{case['id']} {sum(sum(r['hits']) for r in before)}/{len(case['expected']) * len(before)}"
@@ -323,6 +375,9 @@ def main() -> None:
                         help=f"where `from: /path` files come from: {WORKTREE!r} (default, uncommitted edits "
                              "included) or a git revision; repeat to compare variants")
     parser.add_argument("-j", "--concurrency", type=int, default=3)
+    parser.add_argument("--dry-run", action="store_true",
+                        help="build every job -- worktree, copy_in, prompt, tools, denials -- print "
+                             "them and run no model")
     args = parser.parse_args()
 
     ev = Eval(args.eval_dir.resolve())
@@ -346,7 +401,8 @@ def main() -> None:
 
     sweep = datetime.datetime.now().strftime("%Y-%m-%dT%H%M")
     sweep_dir = ev.dir / "runs" / sweep
-    sweep_dir.mkdir(parents=True)
+    if not args.dry_run:
+        sweep_dir.mkdir(parents=True)
     worktree_root = Path(tempfile.mkdtemp(prefix=f"{ev.dir.name}-eval-"))
 
     jobs = [
@@ -358,15 +414,18 @@ def main() -> None:
         for side in (["before", "after"] if arm in after_arms and case.get("after") else ["before"])
         for rep in range(1, args.repeat + 1)
     ]
-    print(f"{len(jobs)} reviewer runs → {sweep_dir}", flush=True)
+    print(f"{len(jobs)} runs{' (dry)' if args.dry_run else ''} → {sweep_dir}", flush=True)
     with concurrent.futures.ThreadPoolExecutor(args.concurrency) as pool:
         results = list(pool.map(
-            lambda j: run_one(ev, j[0], j[1], j[2], j[3], j[4], sweep_dir, worktree_root, len(variants) > 1), jobs))
+            lambda j: run_one(ev, j[0], j[1], j[2], j[3], j[4], sweep_dir, worktree_root,
+                              len(variants) > 1, args.dry_run), jobs))
     shutil.rmtree(worktree_root, ignore_errors=True)
+    if args.dry_run:
+        return
 
     header = ev.header()
     lines = [
-        summary_line(sweep, arm, rules, cases, results, f"{header} · {ev.rules_label(rules)}", args.repeat)
+        summary_line(ev, sweep, arm, rules, cases, results, f"{header} · {ev.rules_label(rules)}", args.repeat)
         for arm in arms
         for rules in variants
     ]

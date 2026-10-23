@@ -58,7 +58,7 @@ Pairs with [review-mode](../review-mode), which turns on when the PR opens.
 ## Evaluating the test reviewer
 
 `evals/test_reviewer.py` is this reviewer's adapter for the shared eval runner
-(`tools/reviewer-eval/run.py` at the repo root; format in `docs/reviewer-evals.md`). It runs
+(`tools/agent-eval/run.py` at the repo root; format in `docs/reviewer-evals.md`). It runs
 the `pre-pr-review:test-reviewer` agent from this checkout with the message
 `scripts/reviewer-inputs.py` generates — what a real dispatch delivers — so a change to the
 reviewer or to a project's testing rules is checked against cases instead of guessed at. The cases belong to the project: each is a defect someone flagged in
@@ -67,6 +67,6 @@ a real review, pinned by tags on the project's origin, in an eval dir beside an 
 project instructions; the source/test layout comes from the profile's layout block).
 
 ```
-python3 tools/reviewer-eval/run.py <project>/.claude/evals/test-reviewer \
+python3 tools/agent-eval/run.py <project>/.claude/evals/test-reviewer \
     --arms full,rules-only --repeat 3
 ```

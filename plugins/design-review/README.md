@@ -81,7 +81,7 @@ why tests 1 and 6 read the way they do.
 ## Evals
 
 Cases live in the project that made the mistakes (format: [`docs/reviewer-evals.md`](../../docs/reviewer-evals.md));
-`evals/design_review.py` is the adapter for the shared runner, `tools/reviewer-eval/run.py`.
+`evals/design_review.py` is the adapter for the shared runner, `tools/agent-eval/run.py`.
 Every case also carries the skill's own contract (the adapter's `CONTRACT`):
 
 - **Every finding is a placement finding** — one of the seven tests, or "Outside the tests"
