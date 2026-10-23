@@ -81,6 +81,9 @@ SESSION_FLAGS = ["--setting-sources", "project", "--strict-mcp-config"]
 BASE_TOOLS = ["Read", "Grep", "Glob", "Bash(git:*)"]
 JUDGE_MODEL = "sonnet"
 WORKTREE = "worktree"  # --rules value: the checkout as it is, uncommitted edits included
+# Every released version of a plugin stays in the install cache, so --plugin-ver can put a kind that
+# runs the real skill on the version an incident ran under.
+PLUGIN_CACHE = Path.home() / ".claude" / "plugins" / "cache" / "redsteep"
 _PLACEHOLDER = re.compile(r"\{[A-Z][A-Z_]+\}")
 
 JUDGE_SCHEMA = {
@@ -181,13 +184,17 @@ class Eval:
             raise SystemExit(f"{self.adapter.TEMPLATE}: placeholders the adapter does not fill: {left}")
         return prompt
 
-    def header(self) -> str:
+    def header(self, rules: str = WORKTREE) -> str:
+        """`record_shas` is resolved at the revision the arm actually read the file from. Taken at
+        HEAD it labels every arm with today's sha, so a `--rules <old>` line claims rules it did not
+        run on -- which is worse than no label, because it reads as comparable."""
         parts = []
         if self.plugin is not None:
             version = json.loads((self.plugin / ".claude-plugin/plugin.json").read_text())["version"]
             parts.append(f"{self.plugin.name} {version} ({sh('git', 'rev-parse', '--short', 'HEAD', cwd=SKILLS)})")
+        at = "HEAD" if rules == WORKTREE else rules
         for rel in self.config.get("record_shas", []):
-            parts.append(f"{Path(rel).name} {sh('git', 'log', '-1', '--format=%h', '--', rel, cwd=self.repo)}")
+            parts.append(f"{Path(rel).name} {sh('git', 'log', '-1', '--format=%h', at, '--', rel, cwd=self.repo)}")
         return " · ".join(parts)
 
 
@@ -237,13 +244,24 @@ def _denial(d: dict) -> dict:
     return {"tool": d.get("tool_name"), "input": detail if detail is not None else tool_input}
 
 
+def plugin_dir(name: str, ver: str | None) -> Path:
+    if ver is None:
+        raise SystemExit(f"adapter wants plugin {name!r}: pass --plugin-ver (installed: "
+                         f"{sorted(p.name for p in (PLUGIN_CACHE / name).iterdir())})")
+    path = PLUGIN_CACHE / name / ver
+    if not (path / "skills").is_dir():
+        raise SystemExit(f"no plugin {name} {ver} at {path}")
+    return path
+
+
 def run_one(ev: Eval, case: dict, arm: str, rules: str, side: str, rep: int, sweep_dir: Path,
-            worktree_root: Path, tag_rules: bool, dry: bool = False) -> dict:
+            worktree_root: Path, tag_rules: bool, dry: bool = False, plugin_ver: str | None = None) -> dict:
     use_reviewer, use_instructions = ARMS[arm]
     variant = f".{re.sub(r'[^A-Za-z0-9_-]', '_', rules)}" if tag_rules else ""
     name = f"{case['id']}.{arm}{variant}.{side}.{rep}"
     worktree = worktree_root / name
-    sh("git", "worktree", "add", "--detach", str(worktree), f"{ev.config['tag_prefix']}/{case['id']}/{side}", cwd=ev.repo)
+    ref = f"{ev.config['tag_prefix']}/{case['id']}/{side}"
+    sh("git", "worktree", "add", "--detach", str(worktree), ref, cwd=ev.repo)
     try:
         # Every eval set of the project (cases, `match` texts, past reports): a case cut from a commit
         # newer than the eval dir would otherwise carry its own answer.
@@ -261,7 +279,12 @@ def run_one(ev: Eval, case: dict, arm: str, rules: str, side: str, rep: int, swe
         elif use_reviewer:
             prompt, session = ev.reviewer_prompt(inputs), ["--agent", "general-purpose"]
         else:
-            prompt, session = ev.adapter.plain_prompt(case, worktree, inputs), ["--agent", "general-purpose"]
+            prompt = ev.adapter.plain_prompt(case, worktree, inputs)
+            # A kind that runs the project's real skill is the session's own agent, not a named
+            # subagent, and needs the plugin on disk at the version that is its arm.
+            session = [] if getattr(ev.adapter, "MAIN_AGENT", False) else ["--agent", "general-purpose"]
+            if name_ := getattr(ev.adapter, "PLUGIN", None):
+                session += ["--plugin-dir", str(plugin_dir(name_, plugin_ver))]
         # A kind whose artifact is code *replaces* the read-only base set rather than extending it:
         # the recorded implementer runs had no Bash at all, and `Bash(git:*)` would be a different
         # environment from the one their results line was measured in.
@@ -284,15 +307,26 @@ def run_one(ev: Eval, case: dict, arm: str, rules: str, side: str, rep: int, swe
             env={"CLAUDE_PLUGIN_ROOT": str(ev.plugin or "")},
         )
         # The artifact of a writing kind is the worktree, which the `finally` is about to delete.
+        # `diff` is what a kind that leaves its work uncommitted produces; `committed_diff` is what
+        # a kind that commits produces, and is empty for the other. `session_id` is how a grader
+        # reaches the run's own transcript, where a dispatched subagent's report is the only place
+        # a middle stage can be read from.
         artifacts = {
             "final_text": review.get("result", ""),
+            "session_id": review.get("session_id", ""),
             "diff": sh("git", "diff", cwd=worktree),
+            "committed_diff": sh("git", "diff", f"{ref}..HEAD", cwd=worktree),
             "head": sh("git", "rev-parse", "HEAD", cwd=worktree),
         }
     finally:
         sh("git", "worktree", "remove", "--force", str(worktree), cwd=ev.repo)
     report = review.get("result", "")
     (sweep_dir / f"{name}.report.md").write_text(report)
+    # A verdict that surprises you has to be re-examinable without archaeology: the worktree is
+    # gone by now, so whatever the run produced is written beside its report.
+    for key in ("diff", "committed_diff"):
+        if artifacts.get(key):
+            (sweep_dir / f"{name}.{key}").write_text(artifacts[key])
 
     contract = list(getattr(ev.adapter, "CONTRACT", []))
     grade = getattr(ev.adapter, "grade", None)
@@ -322,6 +356,7 @@ def run_one(ev: Eval, case: dict, arm: str, rules: str, side: str, rep: int, swe
         # command or path says which allow rule is missing.
         "permission_denials": [_denial(d) for d in review.get("permission_denials", [])],
         "models": sorted(review.get("modelUsage", {})),
+        "session_id": review.get("session_id", ""),
         "review_cost_usd": round(review.get("total_cost_usd", 0), 2),
         "judge_cost_usd": round(judge.get("total_cost_usd", 0), 2),
         "duration_s": round(review.get("duration_ms", 0) / 1000),
@@ -375,6 +410,9 @@ def main() -> None:
                         help=f"where `from: /path` files come from: {WORKTREE!r} (default, uncommitted edits "
                              "included) or a git revision; repeat to compare variants")
     parser.add_argument("-j", "--concurrency", type=int, default=3)
+    parser.add_argument("--plugin-ver", metavar="VER",
+                        help="for a kind that runs a real skill: which installed plugin version to "
+                             "put on disk for it. That version is the arm")
     parser.add_argument("--dry-run", action="store_true",
                         help="build every job -- worktree, copy_in, prompt, tools, denials -- print "
                              "them and run no model")
@@ -418,14 +456,19 @@ def main() -> None:
     with concurrent.futures.ThreadPoolExecutor(args.concurrency) as pool:
         results = list(pool.map(
             lambda j: run_one(ev, j[0], j[1], j[2], j[3], j[4], sweep_dir, worktree_root,
-                              len(variants) > 1, args.dry_run), jobs))
+                              len(variants) > 1, args.dry_run, args.plugin_ver), jobs))
     shutil.rmtree(worktree_root, ignore_errors=True)
     if args.dry_run:
         return
 
-    header = ev.header()
+    def header_for(rules: str) -> str:
+        head = ev.header(rules)
+        if args.plugin_ver and (name_ := getattr(ev.adapter, "PLUGIN", None)):
+            head = f"{name_} {args.plugin_ver} · {head}"
+        return f"{head} · {ev.rules_label(rules)}"
+
     lines = [
-        summary_line(ev, sweep, arm, rules, cases, results, f"{header} · {ev.rules_label(rules)}", args.repeat)
+        summary_line(ev, sweep, arm, rules, cases, results, header_for(rules), args.repeat)
         for arm in arms
         for rules in variants
     ]
