@@ -13,11 +13,12 @@ branch, no PR, no design.
    instead of building the step. Merged ones are history, not steps; closed ones are ignored.
    Then add steps only for what the card still needs beyond those PRs.
 3. Cut the rest into steps. One step = one PR that stands on its own: it can be merged and deployed
-   alone, and the product works after it. **Cut vertically, by use case**: each step delivers one
-   thing a user can do or see, through every layer it needs — storage, backend, API, UI in the
-   same step. Never cut horizontally by layer (a "backend" step, then a "frontend" step, then a
-   "tests" step): a layer alone ships nothing anyone can check on beta, and its design gets
-   decided before the use that would test it. For example, "filter the list by status" and
+   alone, and the product works after it. **Prefer cutting vertically, by use case**: each step
+   delivers one thing a user can do or see, through every layer it needs — storage, backend, API,
+   UI in the same step — rather than horizontally by layer (a "backend" step, then a "frontend"
+   step): a layer alone ships nothing anyone can check on beta, and its design gets decided
+   before the use that would test it. Cut by layer only when a vertical step can't stand alone —
+   say, a data migration that has to be live before any use of it — and say why in the item. For example, "filter the list by status" and
    "export the filtered list" are two steps; "add the status filter to the API" and "add the
    status dropdown" are not. Order them as they must merge. Prefer few steps — a
    small card is one step. Each step is one imperative line saying what changes and what is
