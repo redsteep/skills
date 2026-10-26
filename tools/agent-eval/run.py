@@ -38,6 +38,11 @@ its caller fills it. An adapter defines:
     inputs(case, worktree, config) -> {PLACEHOLDER: value}
     plain_prompt(case, worktree, inputs) -> str      the ask of the arms without the reviewer
 
+A case of a kind that runs a real skill adds `plugin: <name>@<ver>`: the plugin to put on disk, at
+the version that case is about, so a bare run reproduces its own conditions. `--plugin-ver` is the
+arm and overrides it; with neither, such a kind cannot start. Every run also gets
+`artifacts["base"]` — the ref the runner checked out.
+
 Arms cross two switches — the reviewer prompt vs the adapter's plain ask, and the project's
 instructions (`instruction_files`) present vs removed from the worktree:
 
@@ -331,12 +336,29 @@ def judge_open(verdicts: list[dict], cwd: Path) -> dict:
 
 def plugin_dir(name: str, ver: str | None) -> Path:
     if ver is None:
-        raise SystemExit(f"adapter wants plugin {name!r}: pass --plugin-ver (installed: "
+        raise SystemExit(f"no version for plugin {name!r}: pin it in the case "
+                         f"(`plugin: {name}@<ver>`) or pass --plugin-ver (installed: "
                          f"{sorted(p.name for p in (PLUGIN_CACHE / name).iterdir())})")
     path = PLUGIN_CACHE / name / ver
     if not (path / "skills").is_dir():
         raise SystemExit(f"no plugin {name} {ver} at {path}")
     return path
+
+
+def plugin_for(ev: Eval, case: dict, override: str | None) -> tuple[str, str | None] | None:
+    """Which plugin, at which version, this case runs its real skill against.
+
+    `plugin: <name>@<ver>` in the case pins the version the incident ran under, so a bare run
+    reproduces the incident's own conditions instead of refusing to start. `--plugin-ver` is the
+    arm: it overrides the version for every case in the sweep. The adapter's `PLUGIN` is the
+    fallback for a kind whose cases do not name one, and there the flag is still the only source.
+
+    Resolved per case, not once per sweep, so cases pinning different baselines can run together."""
+    declared = case.get("plugin") or getattr(ev.adapter, "PLUGIN", None)
+    if not declared:
+        return None
+    name, _, ver = str(declared).partition("@")
+    return name, override or ver or None
 
 
 def run_one(ev: Eval, case: dict, arm: str, rules: str, side: str, rep: int, sweep_dir: Path,
@@ -368,8 +390,8 @@ def run_one(ev: Eval, case: dict, arm: str, rules: str, side: str, rep: int, swe
             # A kind that runs the project's real skill is the session's own agent, not a named
             # subagent, and needs the plugin on disk at the version that is its arm.
             session = [] if getattr(ev.adapter, "MAIN_AGENT", False) else ["--agent", "general-purpose"]
-            if name_ := getattr(ev.adapter, "PLUGIN", None):
-                session += ["--plugin-dir", str(plugin_dir(name_, plugin_ver))]
+            if pinned := plugin_for(ev, case, plugin_ver):
+                session += ["--plugin-dir", str(plugin_dir(*pinned))]
         # A kind whose artifact is code *replaces* the read-only base set rather than extending it:
         # the recorded implementer runs had no Bash at all, and `Bash(git:*)` would be a different
         # environment from the one their results line was measured in.
@@ -406,6 +428,10 @@ def run_one(ev: Eval, case: dict, arm: str, rules: str, side: str, rep: int, swe
             "diff": sh("git", "diff", cwd=worktree),
             "committed_diff": sh("git", "diff", f"{ref}..HEAD", cwd=worktree),
             "head": sh("git", "rev-parse", "HEAD", cwd=worktree),
+            # The ref this run started from. The runner builds it; without it a grader that needs
+            # the starting state has to restate it in the case, which is a second source of truth
+            # for the same ref and nothing checks the two agree.
+            "base": ref,
         }
         # A chain's later stages edit the files its earlier ones wrote -- the review step applies
         # its findings to the same test files the write step created -- so base..HEAD is the round's
@@ -536,7 +562,8 @@ def main() -> None:
     parser.add_argument("-j", "--concurrency", type=int, default=3)
     parser.add_argument("--plugin-ver", metavar="VER",
                         help="for a kind that runs a real skill: which installed plugin version to "
-                             "put on disk for it. That version is the arm")
+                             "put on disk for it, overriding what each case pins. That version is "
+                             "the arm; omit it to run every case against its own baseline")
     parser.add_argument("--dry-run", action="store_true",
                         help="build every job -- worktree, copy_in, prompt, tools, denials -- print "
                              "them and run no model")
@@ -559,9 +586,11 @@ def main() -> None:
         if rules != WORKTREE:
             sh("git", "rev-parse", "--verify", "--quiet", f"{rules}^{{commit}}", cwd=ev.repo)
     # A kind that needs a plugin on disk is checked here, not inside the first job: by then other
-    # jobs are running and a bad `--plugin-ver` costs their results, not just its own.
-    if plugin_name := getattr(ev.adapter, "PLUGIN", None):
-        plugin_dir(plugin_name, args.plugin_ver)
+    # jobs are running and one bad version costs their results, not just its own. Across the
+    # selected cases, since each may pin its own.
+    for case in cases:
+        if pinned := plugin_for(ev, case, args.plugin_ver):
+            plugin_dir(*pinned)
     tags = f"refs/tags/{ev.config['tag_prefix']}/*"
     sh("git", "fetch", "origin", f"{tags}:{tags}", cwd=ev.repo)
 
@@ -608,10 +637,15 @@ def main() -> None:
     if args.dry_run:
         return
 
+    # The versions actually used, not the flag: with the baseline in the case a bare run still has
+    # a plugin version, and its results line has to say which.
+    pinned_versions = {p for case in cases if (p := plugin_for(ev, case, args.plugin_ver))}
+    used = sorted(f"{n} {v}" for n, v in pinned_versions)
+
     def header_for(rules: str) -> str:
         head = ev.header(rules)
-        if args.plugin_ver and (name_ := getattr(ev.adapter, "PLUGIN", None)):
-            head = f"{name_} {args.plugin_ver} · {head}"
+        if used:
+            head = f"{', '.join(used)} · {head}"
         return f"{head} · {ev.rules_label(rules)}"
 
     lines = [
