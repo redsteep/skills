@@ -28,8 +28,8 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from factory_common import (  # noqa: E402
-    PAUSE_FILE, STATE_DIR, Profile, live_workers, load_repo_secrets, parse_worker_name, run, sent_store,
-    split_name, step_branch, step_name,
+    PAUSE_FILE, STATE_DIR, Profile, issue_short, live_workers, load_repo_secrets, parse_worker_name, run,
+    sent_store, split_name, step_branch, step_name,
 )
 
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent
@@ -69,6 +69,13 @@ class Card:
     url: str
     ready: bool
     items: tuple[Item, ...] | None   # None = no "Factory steps" checklist yet
+    issue: int | None = None         # a GitHub issue standing in for a card: one step, its own item
+
+
+def issue_card(number: int, title: str, url: str, open_: bool) -> Card:
+    """A labelled GitHub issue as a one-step card: ready while open, its one item done once closed
+    (the worker closes it after the beta check)."""
+    return Card(str(number), issue_short(number), title, url, open_, (Item(title, not open_),), issue=number)
 
 
 @dataclass(frozen=True)
@@ -80,6 +87,7 @@ class World:
     sent: frozenset[str]             # event keys already delivered
     wip: int = 3
     label: str = "factory"           # the GitHub label that makes a PR the factory's
+    issue_wip: int = 1               # of the wip slots, at most this many held by issues
 
 
 @dataclass(frozen=True)
@@ -253,17 +261,24 @@ def decide(world: World) -> list:
                         if key not in world.sent:
                             actions.append(SendEvent(step.worker, key, f"Factory event: {text}"))
 
-    # 4. Free slots go to eligible steps: cards already under way first, then board order.
-    held = sum(1 for steps in all_steps.values() for s in steps if s.state in HOLDS_SLOT)
+    # 4. Free slots go to eligible steps: cards before issues; within each, those already under
+    # way first, then board (issue-number) order. Issues never hold more than issue_wip slots.
+    def holding(cards) -> int:
+        return sum(1 for c in cards for s in all_steps.get(c.short, []) if s.state in HOLDS_SLOT)
+    held = holding(world.cards)
+    issues_held = holding(c for c in world.cards if c.issue is not None)
     def started(card: Card) -> bool:
         return any(s.state != PENDING for s in all_steps.get(card.short, []))
-    for card in sorted((c for c in world.cards if c.ready), key=lambda c: not started(c)):
+    for card in sorted((c for c in world.cards if c.ready), key=lambda c: (c.issue is not None, not started(c))):
         if held >= world.wip:
             break
+        if card.issue is not None and issues_held >= world.issue_wip:
+            continue
         eligible = _eligible_step(all_steps.get(card.short, []))
         if eligible is not None:
             actions.append(StartStep(eligible))
             held += 1
+            issues_held += card.issue is not None
 
     # 5. Done steps and stopped cards are cleaned up; the dispatcher is the only cleanup owner.
     for name, info in world.workers.items():
@@ -332,6 +347,14 @@ def load_cards(profile: Profile) -> tuple[Card, ...]:
     return tuple(cards)
 
 
+def load_issues(repo: Path, label: str) -> tuple[Card, ...]:
+    """Issues labelled for the factory, oldest first; closed ones too, so their steps read done."""
+    out = run(["gh", "issue", "list", "--label", label, "--state", "all", "--limit", "200",
+               "--json", "number,title,state,url"], cwd=repo)
+    return tuple(issue_card(i["number"], i["title"], i["url"], i["state"] == "OPEN")
+                 for i in sorted(json.loads(out), key=lambda i: i["number"]))
+
+
 def _ci(rollup: list[dict]) -> str | None:
     if not rollup:
         return None
@@ -385,7 +408,8 @@ class Executor:
         doing = self.profile.get("Trello", "Doing")
         if doing:
             _trello("PUT", f"cards/{a.card.id}", idList=doing)
-        self._launch(split_name(a.card.short), self.repo, "split.md", card=a.card)
+        self._launch(split_name(a.card.short), self.repo, "split.md", card=a.card,
+                     title=display_name(a.card))
 
     @property
     def _worktrees(self) -> Path:
@@ -417,7 +441,7 @@ class Executor:
                     run([create, "--base", f"origin/{self._base}", s.worker], cwd=self.repo, timeout=1800)
         total = len(s.card.items or ())
         self._launch(s.worker, worktree, "recovery.md" if a.recovered else "step.md", card=s.card,
-                     step=s, total=total, recovered=a.recovered or "")
+                     step=s, total=total, recovered=a.recovered or "", title=display_name(s.card, s, total))
 
     def _SendEvent(self, a: SendEvent) -> None:
         prompt = (f"Use ListAgents to find the session named {a.worker}, then use SendMessage to send it "
@@ -445,16 +469,19 @@ class Executor:
                  a.branch, a.fixes or ""], check=False, timeout=600,
                 env={"FACTORY_CLEANUP": self.profile.code_block("Cleanup") or ""})
 
-    def _launch(self, name: str, cwd: Path, template: str, **ctx) -> None:
+    def _launch(self, name: str, cwd: Path, template: str, title: str, **ctx) -> None:
         prompt = render_prompt(template, self.repo, self.profile, name, **ctx)
         # A worker inherits the settings of the branch it sits on, and an adopted PR's branch can
         # predate the repo enabling these plugins — no skills, no reviewer agents, no merge gate.
         # Loading the marketplace's plugins explicitly makes every worker carry them (no
         # duplicates where the branch already enables them).
-        cmd = ["claude", "--bg", "--name", name, "--remote-control", name,
+        # `--name` is the routing key (the dispatcher and its events find the worker by it);
+        # the Remote Control name is what the developer reads in the Claude app.
+        cmd = ["claude", "--bg", "--name", name, "--remote-control", title,
                "--plugin-dir", str(PLUGIN_ROOT.parent),
                "--permission-mode", self.profile.get("Settings", "Permission mode", "auto"),
-               "--disallowedTools", *deny_list(self.profile), "--", prompt]
+               "--disallowedTools", *deny_list(self.profile, issue=ctx["card"].issue is not None),
+               "--", prompt]
         # `claude --bg` hands the session to a background daemon, started on demand by whoever
         # launches first. Started from the dispatch service, that daemon would live in the
         # service's cgroup and die with it the moment the oneshot exits — every worker with it.
@@ -465,18 +492,37 @@ class Executor:
         run(cmd, cwd=cwd, env={"FACTORY_WORKER": name, "FACTORY_REPO": str(self.repo)})
 
 
-def deny_list(profile: Profile) -> list[str]:
-    """The runner deny list shared with nightly-backlog, minus `gh pr merge` (the auto-merge
-    gate hook decides those), plus the profile's own `## Deny` rules."""
+# Shared runner rules the factory replaces: the auto-merge gate hook decides merges, and an
+# issue's worker closes its issue after the beta check.
+NOT_DENIED = ("Bash(gh pr merge", "Bash(gh issue close")
+
+
+def deny_list(profile: Profile, issue: bool = False) -> list[str]:
+    """The runner deny list shared with nightly-backlog, minus what the factory replaces, plus
+    the profile's `## Deny` rules — and, for an issue's worker, the `## Issues` ones."""
     shared = PLUGIN_ROOT.parent.parent / "shared/runner-deny.txt"
     rules = [l.strip() for l in shared.read_text().splitlines() if l.strip() and not l.startswith("#")]
-    rules = [r for r in rules if not r.startswith("Bash(gh pr merge")]
-    return rules + profile.items("Deny")
+    rules = [r for r in rules if not r.startswith(NOT_DENIED)]
+    return rules + profile.items("Deny") + (profile.items("Issues") if issue else [])
+
+
+def display_name(card: Card, step: Step | None = None, total: int = 0) -> str:
+    """The worker's name in the Claude app: what it works on, not its routing key."""
+    if card.issue is not None:
+        title = f"#{card.issue} {card.name}"
+    elif step is None:
+        title = f"{card.name} · split"
+    else:
+        title = f"{card.name} · {step.n}/{total}"
+    return "factory · " + (title if len(title) <= 70 else title[:69] + "…")
 
 
 def _entry(step: Step | None) -> str:
     if step is None:
         return ""
+    if step.card.issue is not None:
+        return (f"This step is **GitHub issue #{step.card.issue}**, marked as needing no design "
+                "decision: there is no spec phase and no Trello card. Start at *Issue*.")
     if step.pr_number is None:
         return "Start at *Spec*."
     return (f"This step **adopts PR #{step.pr_number}** (branch `{step.branch}`), written before the "
@@ -490,6 +536,12 @@ def render_prompt(template: str, repo: Path, profile: Profile, name: str, card: 
         "worker": name, "repo": str(repo), "plugin_root": str(PLUGIN_ROOT),
         "profile": str(repo / ".claude/factory.md"),
         "card_name": card.name, "card_url": card.url, "card_id": card.id,
+        "source": (f'GitHub issue #{card.issue} "{card.name}" ({card.url})' if card.issue is not None
+                   else f'the Trello card "{card.name}" ({card.url}, card id `{card.id}`)'),
+        "issue_label": profile.get("Issues", "Label", "") or "",
+        "issue_handoff": profile.get("Issues", "Handoff", "") or "",
+        "issue_off_limits": profile.text("Issues", "Off limits", "nothing beyond the ground rules")
+                            or "nothing beyond the ground rules",
         "step_n": str(step.n if step else ""), "step_total": str(total),
         "step_text": step.item.name if step else "",
         "branch": step.branch if step else "", "recovered_state": recovered,
@@ -536,6 +588,9 @@ def main() -> int:
     label = profile.get("GitHub", "Label", "factory") or "factory"
     cards = load_cards(profile)
     adopted = {n for c in cards if c.ready for i in c.items or () if (n := adopted_number(i)) is not None}
+    issue_label = profile.get("Issues", "Label")
+    if issue_label:
+        cards += load_issues(repo, issue_label)
     world = World(
         cards=cards,
         prs=load_prs(repo, label, adopted),
@@ -544,6 +599,7 @@ def main() -> int:
         sent=sent_now,
         wip=int(profile.get("Settings", "WIP", "3")),
         label=label,
+        issue_wip=int(profile.get("Issues", "WIP", "1")),
     )
     execute = Executor(repo, profile, dry_run=args.dry_run)
     failures = 0

@@ -1,5 +1,4 @@
-You are **{worker}**, the factory worker for **step {step_n} of {step_total}** of the Trello card
-"{card_name}" ({card_url}, card id `{card_id}`):
+You are **{worker}**, the factory worker for **step {step_n} of {step_total}** of {source}:
 
 > {step_text}
 
@@ -112,6 +111,30 @@ no other worker exists yet, and the dispatcher sends you events for your PR only
   would leave the PR above carrying commits main no longer has.
 - After the merge, nothing to do: the dispatcher deletes your branch at cleanup and GitHub
   repoints the PR above onto `{base}`.
+
+## Issue
+
+The step is a GitHub issue its owner labelled `{issue_label}`: it goes from description to PR
+without a design decision. No spec, no checklist, no card — the issue is the whole step.
+
+1. Read it (`gh issue view <n> --comments`) and the code it names. If it does need a decision
+   after all — a new mechanism, options to choose between, an API contract change, a schema
+   change the issue doesn't spell out, anything visible in the UI — run
+   `{ping} "issue #<n> needs a decision: <question>"` and end your turn; the developer answers here.
+2. **Off limits** for an issue: {issue_off_limits}.
+3. *Build*, steps 1–2. pre-pr-review opens the PR at its step 7: add `--label factory` and write
+   `Refs #<n>` in the body — never `Closes`/`Fixes`: the issue closes only after the beta check.
+4. **Triage: always try the auto-merge.** Add the `Triage:` paragraph and run
+   `gh pr merge --auto --squash <n>`. Your own judgement never sends an issue's PR to review —
+   only the gate hook does. If it denies, take the review path of *Triage* and put the hook's
+   rule in the ping: `"PR #<n> needs review — <rule>"`.
+5. On `merged`: `{lock} acquire handoff`, run `{issue_handoff}` with `issue=<n>`, then
+   `{lock} release handoff` (also when it fails). Deployed and green →
+   `gh issue close <n> --comment "Shipped in #<pr>, deployed."` and end your turn; the dispatcher
+   then stops you. Broken → a fix PR as in *Handoff* step 4.
+6. `pr-closed` → ping `"issue #<n>: PR closed — redo, or remove {issue_label} from the issue to
+   drop it?"` and wait. Redo as in *Events*; dropping is the developer's label change, nothing
+   for you to do.
 
 ## Build
 

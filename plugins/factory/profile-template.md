@@ -46,6 +46,17 @@ Optional. A bash block the dispatcher runs before it removes a finished step's w
 ```bash
 ```
 
+## Issues
+
+Optional: GitHub issues as a second source of work — one step each, no spec phase, auto-merge
+tried first. Leave the section out to take Trello cards only. Bare bullets are extra deny rules
+for an issue's worker.
+
+- **Label:** `<label>` — an open issue with it is taken; label only issues that need no design decision
+- **WIP:** `1` — of the WIP slots, at most this many held by issues; cards get free slots first
+- **Handoff:** `<skill name>` — run after the merge with `issue=<n>`: the deploy check only (README)
+- **Off limits:** <what an issue's worker must not touch, as you'd say it in a prompt>
+
 ## Deny
 
 Extra `--disallowedTools` rules for workers, one backticked rule per bullet.

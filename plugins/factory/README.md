@@ -21,6 +21,16 @@ another one is based on), and deleting a merged branch lets GitHub repoint the P
 you starts with an **architecture gate**: pre-pr-review's architecture reviewer alone, then the
 worker waits for your OK before anything else runs.
 
+**GitHub issues, too** (optional, profile `## Issues`). An open issue with the profile's label is
+a one-step job: no split, no spec, straight to the build. Cards get free slots first, and issues
+hold at most `WIP` of them (default one). Its PR always tries the auto-merge — you review it only
+when the gate hook refuses. After the merge the profile's issue handoff checks the deploy, and
+the worker closes the issue. Label only issues that need no design decision; a worker that hits
+one pings you.
+
+In the Claude app a worker shows by what it works on — `factory · <card> · 1/2`,
+`factory · #414 <issue title>` — while `factory-<card>-s<N>` stays its routing name.
+
 ## How it runs
 
 ```
@@ -59,7 +69,8 @@ in the Slack DM) and type. Events from the dispatcher start with `Factory event:
    A **handoff skill** in the project, run after each merge with `step=<n>/<total>`: it checks the
    deploy, asks "test manually first?" by ping, links the PR on the card and checks item `<n>`; on
    the last step it drafts the card move and requester message and posts them on a yes; it does
-   no cleanup (the dispatcher does).
+   no cleanup (the dispatcher does). With `## Issues`, it also takes `issue=<n>`: the deploy check
+   alone — no ping, no card, no message, no cleanup — reporting whether the change is live.
 6. **Dry run** — `scripts/factory-dispatch <repo> --dry-run` prints what one dispatch would do.
    Then walk one small card through by hand before the timer: run `factory-dispatch <repo>`
    yourself after each of your actions.

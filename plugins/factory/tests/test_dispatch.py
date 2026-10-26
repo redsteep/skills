@@ -9,8 +9,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from factory_dispatch import (  # noqa: E402
     DONE, DROPPED_STATE, FIXING, IN_PROGRESS, MERGED, PENDING, PR, Card, Cleanup, Item,
-    MarkSent, SendEvent, StartSplit, StartStep, World, decide, derive_step_state,
+    MarkSent, SendEvent, StartSplit, StartStep, World, decide, derive_step_state, deny_list, display_name,
+    issue_card,
 )
+from factory_common import Profile  # noqa: E402
 
 
 def card(short, items=None, ready=True):
@@ -30,10 +32,14 @@ def pr(number, head, state="OPEN", ci=None, conflicting=False, sha="abc"):
     return PR(number, state, head, sha, ci, conflicting, f"https://github.com/o/r/pull/{number}")
 
 
-def world(cards, prs=(), branches=(), workers=None, sent=(), wip=3):
+def world(cards, prs=(), branches=(), workers=None, sent=(), wip=3, issue_wip=1):
     return World(tuple(cards), tuple(prs), frozenset(branches),
                  {name: {"status": status} for name, status in (workers or {}).items()},
-                 frozenset(sent), wip)
+                 frozenset(sent), wip, issue_wip=issue_wip)
+
+
+def issue(number, open_=True):
+    return issue_card(number, f"Issue {number}", f"https://github.com/o/r/issues/{number}", open_)
 
 
 def started(actions):
@@ -130,6 +136,57 @@ class Eligibility(unittest.TestCase):
 
     def test_card_without_ready_label_is_not_started(self):
         self.assertEqual(started(decide(world([card("a", [todo()], ready=False)]))), [])
+
+
+class Issues(unittest.TestCase):
+    def test_open_issue_starts_as_a_one_step_job(self):
+        self.assertEqual(started(decide(world([issue(7)]))), [("i7", 1, None)])
+
+    def test_card_takes_the_last_free_slot_before_an_issue(self):
+        w = world([issue(7), card("a", [todo()])], wip=1)
+        self.assertEqual(started(decide(w)), [("a", 1, None)])
+
+    def test_issue_takes_a_slot_no_card_step_can_use(self):
+        # the card's next step waits for its merged one: the free slot goes to the issue
+        w = world([card("a", [todo("one"), todo("two")]), issue(7)], prs=[pr(1, "feature/factory-a-s1", "MERGED")],
+                  branches=["feature/factory-a-s1"], workers={"factory-a-s1": "busy"}, wip=1)
+        self.assertEqual(started(decide(w)), [("i7", 1, None)])
+
+    def test_issue_limit_holds_with_slots_free(self):
+        w = world([issue(7), issue(8)], branches=["feature/factory-i7-s1"], workers={"factory-i7-s1": "busy"})
+        self.assertEqual(started(decide(w)), [])
+
+    def test_issue_limit_above_one_lets_the_next_issue_in(self):
+        w = world([issue(7), issue(8)], branches=["feature/factory-i7-s1"], workers={"factory-i7-s1": "busy"},
+                  issue_wip=2)
+        self.assertEqual(started(decide(w)), [("i8", 1, None)])
+
+    def test_closed_issue_is_cleaned_up(self):
+        w = world([issue(7, open_=False)], branches=["feature/factory-i7-s1"], workers={"factory-i7-s1": "idle"})
+        self.assertEqual([a for a in decide(w) if isinstance(a, Cleanup)],
+                         [Cleanup("factory-i7-s1", "feature/factory-i7-s1", "feature/factory-i7-s1-fix")])
+
+    def test_issue_worker_gets_the_issue_deny_rules_and_may_close_its_issue(self):
+        profile = Profile("## Deny\n- `mcp__x`\n## Issues\n- **Label:** `ok`\n- `mcp__trello`\n")
+        self.assertEqual([r for r in deny_list(profile, issue=True) if r.startswith("mcp__")],
+                         ["mcp__x", "mcp__trello"])
+        self.assertNotIn("mcp__trello", deny_list(profile))
+        self.assertFalse([r for r in deny_list(profile, issue=True) if r.startswith("Bash(gh issue close")])
+
+
+class DisplayName(unittest.TestCase):
+    def test_step_names_card_and_position(self):
+        c = card("a", [todo(), todo()])
+        step = next(a.step for a in decide(world([c])) if isinstance(a, StartStep))
+        self.assertEqual(display_name(c, step, 2), "factory · Card a · 1/2")
+
+    def test_issue_names_its_number_and_title(self):
+        self.assertEqual(display_name(issue(7)), "factory · #7 Issue 7")
+
+    def test_long_name_is_cut_with_an_ellipsis(self):
+        c = card("a")
+        long = Card(c.id, c.short, "x" * 80, c.url, True, None)
+        self.assertEqual(display_name(long), "factory · " + "x" * 69 + "…")
 
 
 class Split(unittest.TestCase):

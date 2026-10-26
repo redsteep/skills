@@ -26,6 +26,12 @@ def step_name(card_short: str, n: int) -> str:
     return f"{WORKER_PREFIX}{card_short}-s{n}"
 
 
+def issue_short(number: int) -> str:
+    """An issue's stand-in for a card short id: `i<number>` (a Trello short link is 8 characters,
+    so the two never collide)."""
+    return f"i{number}"
+
+
 def split_name(card_short: str) -> str:
     return f"{WORKER_PREFIX}{card_short}-split"
 
