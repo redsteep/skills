@@ -238,6 +238,20 @@ round's summary, as step 7 does.
 response shape, generated types) or a shared module many files depend on, or when the PR
 body has no `Reviewed at` line — the same bar as Re-verification below.
 
+### Architecture only — `only=architecture`, then a normal first round
+
+For code that exists before anyone signed off its shape — a PR adopted by the `factory` plugin,
+written outside the workflow — the caller may ask for the architecture verdict alone first, so
+a reviewer's verdict on the shape comes before money is spent testing code that may be
+restructured. Run **step 2 alone**: no step 0 baseline, no E2E, no test reviewer, no
+mutation, no fixes. Dispatch `pre-pr-review:architecture-reviewer` with `worktree:` (and
+`spec:` if the PR has one) — its input generator builds the file lists itself. Report the
+findings to the caller, add `Architecture reviewed at <HEAD_SHA>` to the PR body, and stop.
+
+The later full review is a normal first round, except for step 2: it runs only when production
+code changed since that SHA, and then over that diff only (`base:` the SHA), as a re-review round
+does.
+
 ### An extension marked `Unattended: draft` → a draft PR, not a held branch
 
 When an unattended run reaches step 7 with such an extension triggered and not run, it opens the PR with `--draft`. The body names it in as many words — which extension, which paths triggered it, what was not run — and undrafting requires it, clean. A draft cannot be merged, so the gate has moved from before the PR to before the merge, not away. This is the only gate that may stand open at PR time, and only as a draft: a finished branch held without a PR leaves its reports unread and blocks whoever comes next.
