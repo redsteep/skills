@@ -282,7 +282,7 @@ def load_cards(profile: Profile) -> tuple[Card, ...]:
                   checklists="all")
     cards = []
     for c in sorted(raw, key=lambda c: (lists.get(c["idList"], 0), c["pos"])):
-        ready = any(labels.get(i) == ready_name for i in c["idLabels"])
+        ready = any((labels.get(i) or "").casefold() == ready_name.casefold() for i in c["idLabels"])
         checklist = next((cl for cl in c.get("checklists", []) if cl["name"] == checklist_name), None)
         items = None
         if checklist is not None:
