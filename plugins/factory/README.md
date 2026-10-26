@@ -29,7 +29,7 @@ systemd timer (2 min) → factory-dispatch (a script, no LLM): read GitHub, Trel
                          → clean up finished steps                    (the only cleanup owner)
 worker (one per step)  → spec (subagent) → design-review → draft PR → ping → your approval
                          → build (subagents) → pre-pr-review → triage → ping or auto-merge
-                         → on merge: post-merge-handoff step=n/total → item checked → done
+                         → on merge: the project's handoff skill, step=n/total → item checked → done
 ```
 
 The dispatcher keeps no state of its own beyond `~/.local/state/factory/`: which events and pings
@@ -52,13 +52,18 @@ in the Slack DM) and type. Events from the dispatcher start with `Factory event:
    `claude plugin install factory@redsteep --scope project` (headless and background sessions
    only load plugins installed that way).
 5. **Requirements** — Claude Code ≥ 2.1.224 (cross-session messaging), logged in with claude.ai
-   (Remote Control does not work with an API key), `gh` authenticated, `poetry` if your
-   worktree script needs it. The repo's worktree script must accept `--base <ref>`.
+   (Remote Control does not work with an API key), `gh` authenticated, and whatever your
+   worktree script needs. That script must accept `--base <ref> <name>` and check out an existing
+   branch ref. The redsteep plugins `pre-pr-review`, `design-review` and `review-mode`.
+   A **handoff skill** in the project, run after each merge with `step=<n>/<total>`: it checks the
+   deploy, asks "test manually first?" by ping, links the PR on the card and checks item `<n>`; on
+   the last step it drafts the card move and requester message and posts them on a yes; it does
+   no cleanup (the dispatcher does).
 6. **Dry run** — `scripts/factory-dispatch <repo> --dry-run` prints what one dispatch would do.
    Then walk one small card through by hand before the timer: run `factory-dispatch <repo>`
    yourself after each of your actions.
-7. **Timer** — copy `systemd/factory-dispatch.{service,timer}` to `~/.config/systemd/user/`, fix
-   the repo path in the service, `systemctl --user daemon-reload`,
+7. **Timer** — copy `systemd/factory-dispatch.{service,timer}` to `~/.config/systemd/user/`, set
+   `REPO_PATH` and `PATH` in the service, `systemctl --user daemon-reload`,
    `systemctl --user enable --now factory-dispatch.timer`. Needs `loginctl enable-linger`.
 
 ## Operating it

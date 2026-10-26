@@ -67,10 +67,16 @@ class Profile:
         return cls(path.read_text(), path)
 
     def get(self, section: str, key: str, default: str | None = None) -> str | None:
+        """The key's value: its first backticked token, else the text up to the end of line."""
+        raw = self.text(section, key)
+        return _unquote(raw) if raw is not None else default
+
+    def text(self, section: str, key: str, default: str | None = None) -> str | None:
+        """The key's whole line as written — for values that are prose, not a token."""
         for line in self._sections.get(section, []):
             m = re.match(r"^- \*\*(.+?):\*\*\s*(.*)$", line)
             if m and m[1].strip().lower() == key.lower():
-                return _unquote(m[2])
+                return m[2].strip()
         return default
 
     def require(self, section: str, key: str) -> str:

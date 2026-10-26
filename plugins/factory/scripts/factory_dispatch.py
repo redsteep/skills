@@ -6,7 +6,7 @@ act, exit. Run every couple of minutes by a systemd user timer (see ../systemd/)
 
 All the routing is in `decide()`, a pure function of the world it is handed — that is what the
 tests pin. Everything around it only gathers the world or carries out the actions.
-Design: docs/superpowers/specs/2026-10-26-software-factory-design.md in the project repo.
+Everything project-specific comes from the repo's `.claude/factory.md` (profile-template.md).
 """
 
 from __future__ import annotations
@@ -176,7 +176,7 @@ _ADOPTED = re.compile(r"^(?:\[\w+\]\s*)?#(\d+)\b")
 
 
 def adopted_number(item: Item) -> int | None:
-    """`#401 Sales Calls` (or `[dropped] #401 …`) → 401: the step adopts an existing PR."""
+    """`#12 Add the export` (or `[dropped] #12 …`) → 12: the step adopts an existing PR."""
     m = _ADOPTED.match(item.name)
     return int(m[1]) if m else None
 
@@ -387,26 +387,34 @@ class Executor:
             _trello("PUT", f"cards/{a.card.id}", idList=doing)
         self._launch(split_name(a.card.short), self.repo, "split.md", card=a.card)
 
+    @property
+    def _worktrees(self) -> Path:
+        return self.repo / (self.profile.get("Worktree", "Dir", ".worktrees") or ".worktrees")
+
+    @property
+    def _base(self) -> str:
+        return self.profile.get("Repo", "Base", "main") or "main"
+
     def _StartStep(self, a: StartStep) -> None:
         s = a.step
-        create = self.profile.get("Worktree", "Create", "scripts/create-worktree.sh")
+        create = self.profile.require("Worktree", "Create")
         if s.pr_number is not None:
             # An adopted PR: its own branch, and the label that makes it count as a slot.
             if not s.head or "/" not in s.head:
                 raise RuntimeError(f"PR #{s.pr_number}: branch {s.head!r} has no slash — check it out by hand")
             run(["gh", "pr", "edit", str(s.pr_number), "--add-label", self.profile.get("GitHub", "Label", "factory")],
                 cwd=self.repo)
-            worktree = self.repo / ".worktrees" / s.head.rsplit("/", 1)[1]
+            worktree = self._worktrees / s.head.rsplit("/", 1)[1]
             if not worktree.exists():
                 run([create, s.head], cwd=self.repo, timeout=1800)
         else:
-            worktree = self.repo / ".worktrees" / s.worker
+            worktree = self._worktrees / s.worker
             if not worktree.exists():
-                run(["git", "fetch", "origin", "main"], cwd=self.repo)
+                run(["git", "fetch", "origin", self._base], cwd=self.repo)
                 if s.branch in load_branches(self.repo):
                     run([create, s.branch], cwd=self.repo, timeout=1800)
                 else:
-                    run([create, "--base", "origin/main", s.worker], cwd=self.repo, timeout=1800)
+                    run([create, "--base", f"origin/{self._base}", s.worker], cwd=self.repo, timeout=1800)
         total = len(s.card.items or ())
         self._launch(s.worker, worktree, "recovery.md" if a.recovered else "step.md", card=s.card,
                      step=s, total=total, recovered=a.recovered or "")
@@ -432,8 +440,10 @@ class Executor:
                 run(["claude", "stop", agent["id"]], check=False)
                 run(["claude", "rm", agent["id"]], check=False)
         if a.branch:
-            run([str(PLUGIN_ROOT / "scripts/remove-step-worktree.sh"), str(self.repo), a.branch,
-                 a.fixes or ""], check=False, timeout=600)
+            worktree = self._worktrees / a.branch.rsplit("/", 1)[-1]
+            run([str(PLUGIN_ROOT / "scripts/remove-step-worktree.sh"), str(self.repo), str(worktree),
+                 a.branch, a.fixes or ""], check=False, timeout=600,
+                env={"FACTORY_CLEANUP": self.profile.code_block("Cleanup") or ""})
 
     def _launch(self, name: str, cwd: Path, template: str, **ctx) -> None:
         prompt = render_prompt(template, self.repo, self.profile, name, **ctx)
@@ -485,6 +495,11 @@ def render_prompt(template: str, repo: Path, profile: Profile, name: str, card: 
         "branch": step.branch if step else "", "recovered_state": recovered,
         "fix_prefix": step.fix_prefix if step else "",
         "entry": _entry(step),
+        "base": profile.get("Repo", "Base", "main") or "main",
+        "rules": profile.text("Repo", "Rules", "`CLAUDE.md`") or "`CLAUDE.md`",
+        "spec_template": profile.get("Repo", "Spec template", "") or "(none — use the repo's usual spec shape)",
+        "specs_dir": profile.get("Repo", "Specs", "docs") or "docs",
+        "handoff_skill": profile.get("Repo", "Handoff skill", "") or "",
         "ping": shlex.quote(str(PLUGIN_ROOT / "scripts/factory-ping")),
         "lock": shlex.quote(str(PLUGIN_ROOT / "scripts/factory-lock")),
     }

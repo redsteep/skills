@@ -8,5 +8,7 @@ Type=oneshot
 EnvironmentFile=-%h/.config/factory/env
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 # The plugin runs from the marketplace clone, like nightly-backlog's runner.
-ExecStart=%h/.claude/plugins/marketplaces/redsteep/plugins/factory/scripts/factory-dispatch %h/Projects/Rhumbler
+# Replace REPO_PATH with the repo's absolute path; and set PATH to the shell PATH your workers
+# need (node, poetry, … — they inherit it).
+ExecStart=%h/.claude/plugins/marketplaces/redsteep/plugins/factory/scripts/factory-dispatch REPO_PATH
 TimeoutStartSec=45min

@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from auto_merge_gate import Diff, Gate, failed_rule, judge  # noqa: E402
 
-GATE = Gate(max_lines=30, max_files=3, excluded=("backend/migrations/", "*.lock", "frontend/src/types/api-generated.ts"))
+GATE = Gate(max_lines=30, max_files=3, excluded=("db/migrations/", "*.lock", "src/generated/api.ts"))
 TRIAGE = "Summary\n\nTriage: copy change in one template, nothing open from review."
 
 
@@ -34,15 +34,15 @@ class GateRules(unittest.TestCase):
         self.assertEqual(failed_rule(diff(files=("a", "b", "c", "d")), GATE), "4 files > 3")
 
     def test_each_excluded_path_is_refused(self):
-        for path, pattern in [("backend/migrations/versions/x.py", "backend/migrations/"),
-                              ("backend/poetry.lock", "*.lock"),
-                              ("frontend/src/types/api-generated.ts", "frontend/src/types/api-generated.ts")]:
+        for path, pattern in [("db/migrations/0042_add_x.py", "db/migrations/"),
+                              ("app/poetry.lock", "*.lock"),
+                              ("src/generated/api.ts", "src/generated/api.ts")]:
             with self.subTest(path=path):
                 self.assertEqual(failed_rule(diff(files=(path,)), GATE),
                                  f"`{path}` matches excluded `{pattern}`")
 
     def test_directory_pattern_does_not_match_a_sibling_name(self):
-        self.assertIsNone(failed_rule(diff(files=("backend/migrations_notes.md",)), GATE))
+        self.assertIsNone(failed_rule(diff(files=("db/migrations_notes.md",)), GATE))
 
     def test_pr_without_factory_label_is_refused_however_small(self):
         self.assertEqual(failed_rule(diff(labels=()), GATE), "not a factory PR (no `factory` label)")

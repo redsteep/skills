@@ -24,10 +24,27 @@ Section and key names are read by code — keep them. Values in backticks.
 - **Requester channel:** `<#channel>` `<channel id>`
 - **Permission mode:** `auto`
 
+## Repo
+
+- **Base:** `main`
+- **Rules:** `CLAUDE.md` — what the workers must follow, as you'd say it in a prompt
+- **Spec template:** `<path>` — a step's spec is written from it
+- **Specs:** `<dir>` — where specs go
+- **Handoff skill:** `<skill name>` — run after each merge with `step=<n>/<total>` (README)
+
 ## Worktree
 
-- **Create:** `scripts/create-worktree.sh` — must accept `--base <ref>` and, for an existing
-  branch ref containing a slash, check it out
+- **Create:** `<script>` — `--base <ref> <name>` makes a new branch; a branch ref containing a
+  slash is checked out. The worktree lands in **Dir** under the name after the last slash.
+- **Dir:** `.worktrees`
+
+## Cleanup
+
+Optional. A bash block the dispatcher runs before it removes a finished step's worktree, with
+`$WT` set — per-worktree caches the project needs deleted.
+
+```bash
+```
 
 ## Deny
 
@@ -44,3 +61,4 @@ Excluded paths — a trailing `/` means anything under it, otherwise a glob:
 
 - `migrations/`
 - `.github/`
+- `*.lock`

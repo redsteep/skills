@@ -1,30 +1,30 @@
 #!/usr/bin/env bash
-# Remove a finished factory step's worktree, its poetry venvs, and its branch (local + remote),
-# without prompting. Called by the dispatcher only — it is the one cleanup owner.
-# Follows post-merge-handoff Step 4: venvs are deleted while the worktree still exists, and only
-# paths under the poetry venv cache are ever removed.
+# Remove a finished factory step's worktree and its branches (local + remote), without
+# prompting. Called by the dispatcher only — it is the one cleanup owner.
 #
-#   remove-step-worktree.sh <repo> <branch> [<fix-prefix>]
+#   remove-step-worktree.sh <repo> <worktree> <branch> [<fix-prefix>]
+#     <worktree>    the step's worktree directory (may already be gone)
 #     <branch>      a factory branch, or an adopted PR's branch
 #     <fix-prefix>  the step's fix branches, e.g. feature/factory-aB3d-s1-fix
 #
+# Env FACTORY_CLEANUP: the profile's `## Cleanup` bash block, run first with $WT set, while the
+# worktree still exists (per-worktree caches a project needs deleted).
+#
 # The remote branch is kept while an open PR is based on it: GitHub closes a PR whose base
-# branch is deleted (a stacked PR the next step adopts).
+# branch is deleted (a stacked PR a later step adopts).
 set -uo pipefail
 
-REPO="${1:?usage: remove-step-worktree.sh <repo> <branch>}"
-BRANCH="${2:?usage: remove-step-worktree.sh <repo> <branch>}"
-case "$BRANCH" in main|master|"") echo "refusing to remove $BRANCH" >&2; exit 2 ;; esac
-WT="$REPO/.worktrees/${BRANCH##*/}"
+REPO="${1:?usage: remove-step-worktree.sh <repo> <worktree> <branch> [<fix-prefix>]}"
+WT="${2:?usage: remove-step-worktree.sh <repo> <worktree> <branch> [<fix-prefix>]}"
+BRANCH="${3:?usage: remove-step-worktree.sh <repo> <worktree> <branch> [<fix-prefix>]}"
+FIXES="${4:-}"
+DEFAULT="$(git -C "$REPO" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')"
+case "$BRANCH" in "${DEFAULT:-main}"|main|master|"") echo "refusing to remove $BRANCH" >&2; exit 2 ;; esac
 
 if [[ -d "$WT" ]]; then
-  for p in backend common agent tasks; do
-    [[ -f "$WT/$p/pyproject.toml" ]] || continue
-    V=$(poetry -C "$WT/$p" env info -p 2>/dev/null)
-    case "$V" in
-      "$HOME"/.cache/pypoetry/virtualenvs/*) rm -rf "$V" ;;
-    esac
-  done
+  if [[ -n "${FACTORY_CLEANUP:-}" ]]; then
+    WT="$WT" bash -c "$FACTORY_CLEANUP" || echo "cleanup block exited $? — removing the worktree anyway" >&2
+  fi
   git -C "$REPO" worktree remove --force "$WT"
 fi
 
@@ -39,10 +39,11 @@ delete_remote() {
 
 git -C "$REPO" branch -D "$BRANCH" 2>/dev/null
 delete_remote "$BRANCH"
-FIXES="${3:-}"
-[[ -n "$FIXES" ]] && for fix in $(git -C "$REPO" for-each-ref --format='%(refname:short)' "refs/heads/$FIXES*"); do
-  git -C "$REPO" branch -D "$fix" 2>/dev/null
-  delete_remote "$fix"
-done
+if [[ -n "$FIXES" ]]; then
+  for fix in $(git -C "$REPO" for-each-ref --format='%(refname:short)' "refs/heads/$FIXES*"); do
+    git -C "$REPO" branch -D "$fix" 2>/dev/null
+    delete_remote "$fix"
+  done
+fi
 git -C "$REPO" worktree prune
 exit 0
