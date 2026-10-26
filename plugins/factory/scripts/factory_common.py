@@ -107,6 +107,22 @@ def _unquote(value: str) -> str:
     return first[1] if first else value
 
 
+# --- secrets -------------------------------------------------------------------------------
+SECRET_KEYS = ("TRELLO_API_KEY", "TRELLO_TOKEN", "FACTORY_SLACK_TOKEN")
+
+
+def load_repo_secrets(repo: Path) -> None:
+    """Fill the factory's own keys from `<repo>/.env` when the environment lacks them. Only these
+    keys — the rest of `.env` never reaches the dispatcher or the workers it starts."""
+    env_file = repo / ".env"
+    if not env_file.exists():
+        return
+    for line in env_file.read_text().splitlines():
+        m = re.match(r"^\s*(?:export\s+)?([A-Z_][A-Z0-9_]*)\s*=\s*(.*)$", line)
+        if m and m[1] in SECRET_KEYS and not os.environ.get(m[1]):
+            os.environ[m[1]] = m[2].strip().strip("'\"")
+
+
 # --- state store ---------------------------------------------------------------------------
 @contextmanager
 def sent_store():

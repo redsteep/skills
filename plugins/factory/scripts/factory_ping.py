@@ -5,7 +5,8 @@ the same name does not ping the same reason again.
 
     factory-ping --worker <name> "<one-line reason>"
 
-Env: FACTORY_SLACK_TOKEN (a bot token: a DM from the developer's own user would not notify them),
+Env: FACTORY_SLACK_TOKEN (optional — without it nothing is sent; a bot token, since a DM from the
+developer's own user would not notify them; read from <repo>/.env if not in the environment),
 FACTORY_REPO (set by the dispatcher). The developer's Slack id comes from the profile.
 """
 
@@ -20,7 +21,7 @@ import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from factory_common import Profile, live_workers, run, sent_store  # noqa: E402
+from factory_common import Profile, live_workers, load_repo_secrets, run, sent_store  # noqa: E402
 
 FALLBACK_URL = "https://claude.ai/code"
 
@@ -71,11 +72,15 @@ def main() -> int:
     ap.add_argument("--worker", default=os.environ.get("FACTORY_WORKER"), required=not os.environ.get("FACTORY_WORKER"))
     ap.add_argument("reason")
     args = ap.parse_args()
+    repo = Path(os.environ.get("FACTORY_REPO", "."))
+    load_repo_secrets(repo)
     token = os.environ.get("FACTORY_SLACK_TOKEN")
     if not token:
-        print("factory-ping: FACTORY_SLACK_TOKEN is not set — nothing sent", file=sys.stderr)
-        return 1
-    profile = Profile.load(Path(os.environ.get("FACTORY_REPO", ".")))
+        # Slack is optional: without a token the worker still waits; the developer sees it in
+        # the Claude app's session list instead of a DM.
+        print("factory-ping: no FACTORY_SLACK_TOKEN — Slack skipped; the session waits for you in the Claude app")
+        return 0
+    profile = Profile.load(repo)
     user = profile.require("Settings", "Slack user")
 
     def post(text: str) -> None:

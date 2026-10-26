@@ -44,9 +44,10 @@ in the Slack DM) and type. Events from the dispatcher start with `Factory event:
 1. **Profile** — copy `profile-template.md` to `<repo>/.claude/factory.md` and fill it in.
 2. **Labels** — once per repo: `gh label create factory`, `gh label create factory:spec-approved`,
    `gh label create factory:auto-merged`, `gh label create factory:arch-approved`; and a `ready` label on the Trello board.
-3. **Secrets** — `~/.config/factory/env` (`chmod 600`) with `FACTORY_SLACK_TOKEN` (a **bot** token
-   with `chat:write` and `im:write`; a DM from your own user would not notify you),
-   `TRELLO_API_KEY`, `TRELLO_TOKEN`.
+3. **Secrets** — `TRELLO_API_KEY`, `TRELLO_TOKEN` and, optionally, `FACTORY_SLACK_TOKEN` (a **bot**
+   token with `chat:write` and `im:write`; a DM from your own user would not notify you), from the
+   environment, `~/.config/factory/env` (`chmod 600`), or the repo's `.env` — only these keys are
+   read from it. Without a Slack token there are no DMs: waiting workers show in the Claude app.
 4. **Plugin** — enable `factory@redsteep` in the repo's `.claude/settings.json` and run
    `claude plugin install factory@redsteep --scope project` (headless and background sessions
    only load plugins installed that way).

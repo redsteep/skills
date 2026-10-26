@@ -3,8 +3,9 @@ Description=Factory dispatcher — one dispatch over Trello, GitHub and the fact
 
 [Service]
 Type=oneshot
-# FACTORY_SLACK_TOKEN (a bot token), TRELLO_API_KEY, TRELLO_TOKEN. chmod 600; never in a repo.
-EnvironmentFile=%h/.config/factory/env
+# Optional: FACTORY_SLACK_TOKEN (a bot token), TRELLO_API_KEY, TRELLO_TOKEN — chmod 600, never in a
+# repo. Any of them missing here is read from the repo's .env; without a Slack token, no DMs.
+EnvironmentFile=-%h/.config/factory/env
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 # The plugin runs from the marketplace clone, like nightly-backlog's runner.
 ExecStart=%h/.claude/plugins/marketplaces/redsteep/plugins/factory/scripts/factory-dispatch %h/Projects/Rhumbler

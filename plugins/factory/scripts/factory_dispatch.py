@@ -26,7 +26,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from factory_common import (  # noqa: E402
-    PAUSE_FILE, STATE_DIR, Profile, live_workers, parse_worker_name, run, sent_store,
+    PAUSE_FILE, STATE_DIR, Profile, live_workers, load_repo_secrets, parse_worker_name, run, sent_store,
     split_name, step_branch, step_name,
 )
 
@@ -500,6 +500,7 @@ def main() -> int:
         print("factory: previous dispatch still running")
         return 0
 
+    load_repo_secrets(repo)
     profile = Profile.load(repo)
     with sent_store() as sent:
         sent_now = frozenset(sent)
