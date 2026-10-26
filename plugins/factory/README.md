@@ -14,6 +14,12 @@ Only the tiniest PRs skip your review: the worker may run `gh pr merge --auto --
 hook lets it through only when the diff passes the gate in your profile. Start strict; relax the
 gate by editing the profile.
 
+**Cards that already have PRs.** The split worker turns each open PR linked on the card into a
+step named `#<n> …`, and the factory adopts it instead of building it: no spec phase, the PR's own
+branch, stacked PRs retargeted onto `main` in turn. An adopted PR written by someone other than
+you starts with an **architecture gate**: pre-pr-review's architecture reviewer alone, then the
+worker waits for your OK before anything else runs.
+
 ## How it runs
 
 ```
@@ -37,7 +43,7 @@ in the Slack DM) and type. Events from the dispatcher start with `Factory event:
 
 1. **Profile** — copy `profile-template.md` to `<repo>/.claude/factory.md` and fill it in.
 2. **Labels** — once per repo: `gh label create factory`, `gh label create factory:spec-approved`,
-   `gh label create factory:auto-merged`; and a `ready` label on the Trello board.
+   `gh label create factory:auto-merged`, `gh label create factory:arch-approved`; and a `ready` label on the Trello board.
 3. **Secrets** — `~/.config/factory/env` (`chmod 600`) with `FACTORY_SLACK_TOKEN` (a **bot** token
    with `chat:write` and `im:write`; a DM from your own user would not notify you),
    `TRELLO_API_KEY`, `TRELLO_TOKEN`.

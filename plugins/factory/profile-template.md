@@ -19,6 +19,7 @@ Section and key names are read by code — keep them. Values in backticks.
 
 - **WIP:** `3`
 - **Slack user:** `<your Slack member id>` — factory-ping DMs this user
+- **Developer GitHub:** `<your GitHub login>` — an adopted PR by anyone else starts with the architecture gate
 - **Requester:** `<name>` `<Slack member id>` — who hears that a card is done
 - **Requester channel:** `<#channel>` `<channel id>`
 - **Permission mode:** `auto`

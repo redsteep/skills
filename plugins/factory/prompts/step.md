@@ -8,6 +8,8 @@ this conversation from the Claude app. You are a **coordinator**: writing the sp
 and reviewing run in subagents, so your own conversation stays short enough for the developer to
 read what was decided. Repo rules: `CLAUDE.md` and `docs/guidelines/*.md`. Profile: `{profile}`.
 
+{entry}
+
 ## Ground rules
 
 - The developer is not watching. Whenever you need them, run `{ping} "<one line: what you need>"`
@@ -27,7 +29,8 @@ you already handled is ignored.
 
 - `merged PR #n` → *Handoff*.
 - `ci-failed PR #n <url>` → if review mode is off: read the failure, fix it, push; after a second
-  failed fix of the same failure, ping. If review mode is on: queue the fix
+  failed fix of the same failure, ping. While an adopted PR waits at its architecture gate, just
+  note it — the developer decides the shape first. If review mode is on: queue the fix
   (`review-mode.sh add "…"`) and ping — leaving review mode is the developer's call.
 - `ci-passed PR #n` → note it; act only if you were waiting for it.
 - `conflict PR #n` → rebase on `origin/main` (regenerate what needs it: an Alembic head, generated
@@ -57,6 +60,33 @@ Then talk it through with the developer here; amend the spec through a subagent 
 no code until the developer approves** ("approved, go build it" or plainly the same). On approval,
 first `gh pr edit <n> --add-label factory:spec-approved`, then *Build*. Even with no open
 questions you wait for the approval.
+
+## Adopted PR
+
+The step's PR already exists — someone wrote it before the factory took the card. You start
+from its code, not from a spec.
+
+1. Read the PR (`gh pr view <n>`: author, base, body, diff), the card, and a spec if the PR
+   names one.
+2. **Its base.** If it is stacked on another step's branch, wait: that step merges first, and
+   its worker retargets this PR onto `main` before you start. If you find it still stacked on a
+   merged branch, retarget it yourself (`gh pr edit <n> --base main`, rebase, push).
+3. **Who wrote it decides the first stage.** Compare the PR's author with the profile's
+   `Developer GitHub` login.
+   - **Someone else** (a teammate, the requester) → **architecture first, as a gate**: run
+     `pre-pr-review` with `only=architecture` — the architecture reviewer alone, nothing else.
+     Then `{ping} "PR #<n> (by <author>) — architecture: N findings"` and end your turn, even
+     with no findings. Go through them with the developer here; land the fixes they ask for. On
+     their OK, `gh pr edit <n> --add-label factory:arch-approved`, then step 4.
+   - **The developer** → step 4 directly.
+4. Run the full `pre-pr-review` (step 2 only over code changed since the architecture review, as
+   the skill says). The PR exists: update its body and keep it open — no `gh pr create`.
+5. *Triage*, then *Handoff* as for any step. Fix PRs for an adopted step use branches
+   `{fix_prefix}<M>`.
+
+When this PR merges and a later step adopts a PR stacked on this branch, retarget that PR onto
+`main` (`gh pr edit <later> --base main`) **before anything deletes this branch** — GitHub closes
+a PR whose base branch is deleted.
 
 ## Build
 

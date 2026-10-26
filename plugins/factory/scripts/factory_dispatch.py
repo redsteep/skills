@@ -15,6 +15,7 @@ import argparse
 import fcntl
 import json
 import os
+import re
 import shlex
 import sys
 import urllib.parse
@@ -49,6 +50,7 @@ class PR:
     ci: str | None           # passed | failed | pending | None (no checks)
     conflicting: bool
     url: str = ""
+    labels: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -71,10 +73,11 @@ class Card:
 class World:
     cards: tuple[Card, ...]          # in board order: list position, then card position
     prs: tuple[PR, ...]              # factory PRs, any state
-    branches: frozenset[str]         # local feature/factory-* branches
+    branches: frozenset[str]         # local branches
     workers: dict                    # live worker name → {"status": "idle"|"busy", ...}
     sent: frozenset[str]             # event keys already delivered
     wip: int = 3
+    label: str = "factory"           # the GitHub label that makes a PR the factory's
 
 
 @dataclass(frozen=True)
@@ -83,6 +86,8 @@ class Step:
     n: int
     item: Item
     state: str
+    pr_number: int | None = None     # an adopted PR: the item names it as `#<n> …`
+    head: str | None = None          # that PR's branch, once known
 
     @property
     def worker(self) -> str:
@@ -90,7 +95,13 @@ class Step:
 
     @property
     def branch(self) -> str:
-        return step_branch(self.card.short, self.n)
+        """The step's own branch: an adopted PR's branch, else the factory's name for it."""
+        return self.head or step_branch(self.card.short, self.n)
+
+    @property
+    def fix_prefix(self) -> str:
+        """Fix PRs always get factory branches, adopted step or not."""
+        return step_branch(self.card.short, self.n) + "-fix"
 
 
 # --- actions -----------------------------------------------------------------------------
@@ -122,6 +133,7 @@ class MarkSent:
 class Cleanup:
     worker: str | None               # live session to stop, if any
     branch: str | None               # step branch whose worktree + branch to remove
+    fixes: str | None = None         # prefix of the step's fix branches, removed too
 
 
 # --- step state ----------------------------------------------------------------------------
@@ -158,14 +170,38 @@ def derive_step_state(item: Item, branch_exists: bool, pr: PR | None, fixes: lis
     return PENDING
 
 
+_ADOPTED = re.compile(r"^(?:\[\w+\]\s*)?#(\d+)\b")
+
+
+def adopted_number(item: Item) -> int | None:
+    """`#401 Sales Calls` (or `[dropped] #401 …`) → 401: the step adopts an existing PR."""
+    m = _ADOPTED.match(item.name)
+    return int(m[1]) if m else None
+
+
 def card_steps(card: Card, world: World) -> list[Step]:
     steps = []
     for n, item in enumerate(card.items or (), start=1):
-        branch = step_branch(card.short, n)
-        pr, fixes = step_prs(world.prs, branch)
-        state = derive_step_state(item, branch in world.branches, pr, fixes)
-        steps.append(Step(card, n, item, state))
+        number = adopted_number(item)
+        if number is None:
+            branch = step_branch(card.short, n)
+            pr, fixes = step_prs(world.prs, branch)
+            state = derive_step_state(item, branch in world.branches, pr, fixes)
+            steps.append(Step(card, n, item, state))
+            continue
+        # An adopted PR is the factory's only once the dispatcher has labelled it: until then an
+        # open one waits its turn like any pending step (a stacked PR behind its base, say).
+        pr = next((p for p in world.prs if p.number == number), None)
+        taken = pr if pr is not None and (pr.state != "OPEN" or world.label in pr.labels) else None
+        fixes = [p for p in world.prs if p.head.startswith(step_branch(card.short, n) + "-fix")]
+        state = derive_step_state(item, False, taken, fixes)
+        steps.append(Step(card, n, item, state, number, pr.head if pr else None))
     return steps
+
+
+def step_all_prs(step: Step, prs: tuple[PR, ...]) -> list[PR]:
+    own = [p for p in prs if (p.number == step.pr_number if step.pr_number else p.head == step.branch)]
+    return own + [p for p in prs if p.head.startswith(step.fix_prefix)]
 
 
 # --- events --------------------------------------------------------------------------------
@@ -201,7 +237,7 @@ def decide(world: World) -> list:
         if not card.ready:
             continue
         for step in all_steps.get(card.short, []):
-            prs = [p for p in world.prs if p.head == step.branch or p.head.startswith(step.branch + "-fix")]
+            prs = step_all_prs(step, world.prs)
             keys = [k for p in prs for k, _ in pr_events(p) if k not in world.sent]
             # 2. A step that needs a worker and has none gets a replacement.
             if step.state in NEEDS_WORKER and step.worker not in world.workers:
@@ -240,11 +276,12 @@ def decide(world: World) -> list:
             continue
         step = _step(all_steps, short, n)
         if card is None or not card.ready or (step is not None and step.state == DONE):
-            actions.append(Cleanup(name, step_branch(short, n)))
+            branch = step.branch if step else step_branch(short, n)
+            actions.append(Cleanup(name, branch, step_branch(short, n) + "-fix"))
     for steps in all_steps.values():
         for s in steps:
             if s.state == DONE and s.branch in world.branches and s.worker not in world.workers:
-                actions.append(Cleanup(None, s.branch))
+                actions.append(Cleanup(None, s.branch, s.fix_prefix))
     return actions
 
 
@@ -304,16 +341,27 @@ def _ci(rollup: list[dict]) -> str | None:
     return "passed"
 
 
-def load_prs(repo: Path, label: str) -> tuple[PR, ...]:
-    out = run(["gh", "pr", "list", "--label", label, "--state", "all", "--limit", "200", "--json",
-               "number,state,headRefName,headRefOid,statusCheckRollup,mergeable,url"], cwd=repo)
-    return tuple(PR(p["number"], p["state"], p["headRefName"], p["headRefOid"],
-                    _ci(p.get("statusCheckRollup") or []), p.get("mergeable") == "CONFLICTING", p["url"])
-                 for p in json.loads(out))
+_PR_FIELDS = "number,state,headRefName,headRefOid,statusCheckRollup,mergeable,url,labels"
+
+
+def _pr(p: dict) -> PR:
+    return PR(p["number"], p["state"], p["headRefName"], p["headRefOid"],
+              _ci(p.get("statusCheckRollup") or []), p.get("mergeable") == "CONFLICTING", p["url"],
+              tuple(l["name"] for l in p.get("labels") or []))
+
+
+def load_prs(repo: Path, label: str, adopted: set[int]) -> tuple[PR, ...]:
+    """Factory-labelled PRs, plus the PRs cards adopt that the factory has not labelled yet."""
+    out = run(["gh", "pr", "list", "--label", label, "--state", "all", "--limit", "200",
+               "--json", _PR_FIELDS], cwd=repo)
+    prs = {p["number"]: _pr(p) for p in json.loads(out)}
+    for number in adopted - prs.keys():
+        prs[number] = _pr(json.loads(run(["gh", "pr", "view", str(number), "--json", _PR_FIELDS], cwd=repo)))
+    return tuple(prs.values())
 
 
 def load_branches(repo: Path) -> frozenset[str]:
-    out = run(["git", "for-each-ref", "--format=%(refname:short)", "refs/heads/feature/factory-"], cwd=repo)
+    out = run(["git", "for-each-ref", "--format=%(refname:short)", "refs/heads/"], cwd=repo)
     return frozenset(out.split())
 
 
@@ -339,14 +387,24 @@ class Executor:
 
     def _StartStep(self, a: StartStep) -> None:
         s = a.step
-        worktree = self.repo / ".worktrees" / s.worker
-        if not worktree.exists():
-            create = self.profile.get("Worktree", "Create", "scripts/create-worktree.sh")
-            run(["git", "fetch", "origin", "main"], cwd=self.repo)
-            if s.branch in load_branches(self.repo):
-                run([create, s.branch], cwd=self.repo, timeout=1800)
-            else:
-                run([create, "--base", "origin/main", s.worker], cwd=self.repo, timeout=1800)
+        create = self.profile.get("Worktree", "Create", "scripts/create-worktree.sh")
+        if s.pr_number is not None:
+            # An adopted PR: its own branch, and the label that makes it count as a slot.
+            if not s.head or "/" not in s.head:
+                raise RuntimeError(f"PR #{s.pr_number}: branch {s.head!r} has no slash — check it out by hand")
+            run(["gh", "pr", "edit", str(s.pr_number), "--add-label", self.profile.get("GitHub", "Label", "factory")],
+                cwd=self.repo)
+            worktree = self.repo / ".worktrees" / s.head.rsplit("/", 1)[1]
+            if not worktree.exists():
+                run([create, s.head], cwd=self.repo, timeout=1800)
+        else:
+            worktree = self.repo / ".worktrees" / s.worker
+            if not worktree.exists():
+                run(["git", "fetch", "origin", "main"], cwd=self.repo)
+                if s.branch in load_branches(self.repo):
+                    run([create, s.branch], cwd=self.repo, timeout=1800)
+                else:
+                    run([create, "--base", "origin/main", s.worker], cwd=self.repo, timeout=1800)
         total = len(s.card.items or ())
         self._launch(s.worker, worktree, "recovery.md" if a.recovered else "step.md", card=s.card,
                      step=s, total=total, recovered=a.recovered or "")
@@ -372,8 +430,8 @@ class Executor:
                 run(["claude", "stop", agent["id"]], check=False)
                 run(["claude", "rm", agent["id"]], check=False)
         if a.branch:
-            run([str(PLUGIN_ROOT / "scripts/remove-step-worktree.sh"), str(self.repo), a.branch],
-                check=False, timeout=600)
+            run([str(PLUGIN_ROOT / "scripts/remove-step-worktree.sh"), str(self.repo), a.branch,
+                 a.fixes or ""], check=False, timeout=600)
 
     def _launch(self, name: str, cwd: Path, template: str, **ctx) -> None:
         prompt = render_prompt(template, self.repo, self.profile, name, **ctx)
@@ -392,6 +450,15 @@ def deny_list(profile: Profile) -> list[str]:
     return rules + profile.items("Deny")
 
 
+def _entry(step: Step | None) -> str:
+    if step is None:
+        return ""
+    if step.pr_number is None:
+        return "Start at *Spec*."
+    return (f"This step **adopts PR #{step.pr_number}** (branch `{step.branch}`), written before the "
+            "factory took the card: there is no spec phase. Start at *Adopted PR*.")
+
+
 def render_prompt(template: str, repo: Path, profile: Profile, name: str, card: Card,
                   step: Step | None = None, total: int = 0, recovered: str = "") -> str:
     text = (PLUGIN_ROOT / "prompts" / template).read_text()
@@ -402,6 +469,8 @@ def render_prompt(template: str, repo: Path, profile: Profile, name: str, card: 
         "step_n": str(step.n if step else ""), "step_total": str(total),
         "step_text": step.item.name if step else "",
         "branch": step.branch if step else "", "recovered_state": recovered,
+        "fix_prefix": step.fix_prefix if step else "",
+        "entry": _entry(step),
         "ping": shlex.quote(str(PLUGIN_ROOT / "scripts/factory-ping")),
         "lock": shlex.quote(str(PLUGIN_ROOT / "scripts/factory-lock")),
     }
@@ -434,13 +503,17 @@ def main() -> int:
     profile = Profile.load(repo)
     with sent_store() as sent:
         sent_now = frozenset(sent)
+    label = profile.get("GitHub", "Label", "factory") or "factory"
+    cards = load_cards(profile)
+    adopted = {n for c in cards if c.ready for i in c.items or () if (n := adopted_number(i)) is not None}
     world = World(
-        cards=load_cards(profile),
-        prs=load_prs(repo, profile.get("GitHub", "Label", "factory")),
+        cards=cards,
+        prs=load_prs(repo, label, adopted),
         branches=load_branches(repo),
         workers=live_workers(),
         sent=sent_now,
         wip=int(profile.get("Settings", "WIP", "3")),
+        label=label,
     )
     execute = Executor(repo, profile, dry_run=args.dry_run)
     failures = 0

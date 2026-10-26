@@ -158,7 +158,7 @@ class Recovery(unittest.TestCase):
         w = world([card("a", [done()])], branches=["feature/factory-a-s1"])
         actions = decide(w)
         self.assertEqual(started(actions), [])
-        self.assertIn(Cleanup(None, "feature/factory-a-s1"), actions)
+        self.assertIn(Cleanup(None, "feature/factory-a-s1", "feature/factory-a-s1-fix"), actions)
 
 
 class Events(unittest.TestCase):
@@ -185,14 +185,58 @@ class Events(unittest.TestCase):
         self.assertEqual([a.key for a in decide(w) if isinstance(a, SendEvent)], ["7:closed"])
 
 
+def labelled(number, head, state="OPEN", base_labels=("factory",)):
+    p = pr(number, head, state)
+    return PR(p.number, p.state, p.head, p.head_sha, p.ci, p.conflicting, p.url, tuple(base_labels))
+
+
+class Adoption(unittest.TestCase):
+    """Items named `#<n> …` adopt that PR instead of building the step."""
+
+    def test_unlabelled_adopted_pr_waits_as_pending_and_starts_first(self):
+        w = world([card("a", [todo("#401 sales calls"), todo("#402 orders")])],
+                  prs=[labelled(401, "feat/x", base_labels=()), labelled(402, "feat/y", base_labels=())])
+        self.assertEqual(started(decide(w)), [("a", 1, None)])
+
+    def test_labelled_adopted_pr_holds_a_slot(self):
+        cards = [card("a", [todo("#401 sales calls")]), card("b", [todo()])]
+        w = world(cards, prs=[labelled(401, "feat/x")], workers={"factory-a-s1": "busy"}, wip=1)
+        self.assertEqual(started(decide(w)), [])
+
+    def test_stacked_adopted_pr_waits_until_the_earlier_step_is_done(self):
+        w = world([card("a", [todo("#401 sales calls"), todo("#402 orders")])],
+                  prs=[labelled(401, "feat/x", "MERGED"), labelled(402, "feat/y", base_labels=())],
+                  workers={"factory-a-s1": "busy"})
+        self.assertEqual(started(decide(w)), [])
+
+    def test_stacked_adopted_pr_starts_once_the_earlier_step_is_checked(self):
+        w = world([card("a", [done("#401 sales calls"), todo("#402 orders")])],
+                  prs=[labelled(401, "feat/x", "MERGED"), labelled(402, "feat/y", base_labels=())])
+        self.assertEqual(started(decide(w)), [("a", 2, None)])
+
+    def test_merge_of_an_adopted_pr_reaches_its_worker(self):
+        w = world([card("a", [todo("#401 sales calls")])], prs=[labelled(401, "feat/x", "MERGED")],
+                  workers={"factory-a-s1": "idle"})
+        self.assertEqual([a.key for a in decide(w) if isinstance(a, SendEvent)], ["401:merged"])
+
+    def test_dead_worker_of_a_taken_adopted_pr_is_replaced(self):
+        w = world([card("a", [todo("#401 sales calls")])], prs=[labelled(401, "feat/x")])
+        self.assertEqual(started(decide(w)), [("a", 1, IN_PROGRESS)])
+
+    def test_done_adopted_step_cleans_up_its_own_branch(self):
+        w = world([card("a", [done("#401 sales calls")])], prs=[labelled(401, "feat/x", "MERGED")],
+                  branches=["feat/x"], workers={"factory-a-s1": "idle"})
+        self.assertIn(Cleanup("factory-a-s1", "feat/x", "feature/factory-a-s1-fix"), decide(w))
+
+
 class CleanupRule(unittest.TestCase):
     def test_idle_worker_of_a_done_step_is_cleaned(self):
         w = world([card("a", [done()])], branches=["feature/factory-a-s1"], workers={"factory-a-s1": "idle"})
-        self.assertIn(Cleanup("factory-a-s1", "feature/factory-a-s1"), decide(w))
+        self.assertIn(Cleanup("factory-a-s1", "feature/factory-a-s1", "feature/factory-a-s1-fix"), decide(w))
 
     def test_busy_worker_of_a_done_step_is_left_alone(self):
         w = world([card("a", [done()])], branches=["feature/factory-a-s1"], workers={"factory-a-s1": "busy"})
-        self.assertNotIn(Cleanup("factory-a-s1", "feature/factory-a-s1"), decide(w))
+        self.assertNotIn(Cleanup("factory-a-s1", "feature/factory-a-s1", "feature/factory-a-s1-fix"), decide(w))
 
     def test_idle_worker_of_an_unfinished_step_is_left_alone(self):
         w = world([card("a", [todo()])], prs=[pr(1, "feature/factory-a-s1")],

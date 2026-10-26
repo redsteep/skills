@@ -7,13 +7,18 @@ branch, no PR, no design.
 
 1. Read the card: description, comments, attachments, links (Trello tools). Read enough of the
    repo (`CLAUDE.md`, the code the card touches) to know where the work lands.
-2. Cut it into steps. One step = one PR that stands on its own: it can be merged and deployed
+2. **PRs the card already has** (linked in its description, comments or attachments): every
+   open one becomes a step of its own, in the order they must merge — a PR stacked on another
+   comes after it. Name the item `#<number> <what it does>`; the factory then adopts that PR
+   instead of building the step. Merged ones are history, not steps; closed ones are ignored.
+   Then add steps only for what the card still needs beyond those PRs.
+3. Cut the rest into steps. One step = one PR that stands on its own: it can be merged and deployed
    alone, and the product works after it. Order them as they must merge. Prefer few steps — a
    small card is one step. Each step is one imperative line saying what changes and what is
    visible when it is done. The design happens later, per step; don't pre-decide it here.
-3. Write them as a checklist named exactly **`Factory steps`** on the card, one item per step, in
+4. Write them as a checklist named exactly **`Factory steps`** on the card, one item per step, in
    order (create the checklist, then add the items).
-4. End your turn with the list. Post nothing to anyone.
+5. End your turn with the list. Post nothing to anyone.
 
 **If the card is too unclear to split** — you would be guessing what the requester wants, not how
 to build it — run `{ping} "card unclear: <your question>"`, end your turn, and wait: the

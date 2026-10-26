@@ -1,6 +1,6 @@
 {
   "name": "factory",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A software factory on your own box: Trello cards labelled `ready` become one PR per step, at most three in flight. A dispatcher on a timer starts one background Claude worker per step; you approve each step's spec and review each PR from the Claude app, pinged on Slack when a step waits for you. Only the tiniest PRs auto-merge, through a deterministic gate hook.",
   "author": {
     "name": "Stanislav Krasnoyarov",
@@ -8,5 +8,11 @@
   },
   "repository": "https://github.com/redsteep/skills",
   "license": "MIT",
-  "keywords": ["automation", "orchestration", "trello", "remote-control", "workflow"]
+  "keywords": [
+    "automation",
+    "orchestration",
+    "trello",
+    "remote-control",
+    "workflow"
+  ]
 }
