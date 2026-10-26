@@ -247,6 +247,8 @@ restructured. Run **step 2 alone**: no step 0 baseline, no E2E, no test reviewer
 mutation, no fixes. Dispatch `pre-pr-review:architecture-reviewer` with `worktree:` (and
 `spec:` if the PR has one) — its input generator builds the file lists itself. Report the
 findings to the caller, add `Architecture reviewed at <HEAD_SHA>` to the PR body, and stop.
+Several PRs that are one design (a stack): run it once, in a worktree of the top PR's branch —
+its diff from the base holds them all — and attribute each finding to the PR it lands in.
 
 The later full review is a normal first round, except for step 2: it runs only when production
 code changed since that SHA, and then over that diff only (`base:` the SHA), as a re-review round

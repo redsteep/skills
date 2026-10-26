@@ -1,6 +1,6 @@
 {
   "name": "pre-pr-review",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "description": "Gated review of a finished feature branch before the PR: surface vs the spec, E2E, architecture, test strategy, mutation testing, refactor. Project specifics come from a checked-in profile. Blocks `gh pr create` until the review has run.",
   "author": {
     "name": "Stanislav Krasnoyarov",

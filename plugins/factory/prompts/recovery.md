@@ -9,8 +9,9 @@ finished work and never restart a step that has a PR.
 - `in-progress`, draft PR without `factory:spec-approved` → the spec waits for the developer: ping.
 - `in-progress`, `factory:spec-approved` → *Build* (or *Triage*, if the PR is already ready for review).
 - `in-progress`, an adopted PR → *Adopted PR*: without `factory:arch-approved` and not written by
-  the developer, the architecture gate waits on them (re-run it if the PR body has no
-  `Architecture reviewed at` line, then ping); with the label, its step 4.
+  the developer, the card's architecture gate waits on them (re-run it over all the card's
+  adopted PRs if the PR body has no `Architecture reviewed at` line, then ping); with the label,
+  its step 4.
 - `merged` → *Handoff* only.
 - `fixing` → the fix PR's phase, as above.
 

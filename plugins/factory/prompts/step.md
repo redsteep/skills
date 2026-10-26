@@ -73,11 +73,21 @@ from its code, not from a spec.
    merged branch, retarget it yourself (`gh pr edit <n> --base main`, rebase, push).
 3. **Who wrote it decides the first stage.** Compare the PR's author with the profile's
    `Developer GitHub` login.
-   - **Someone else** (a teammate, the requester) → **architecture first, as a gate**: run
-     `pre-pr-review` with `only=architecture` — the architecture reviewer alone, nothing else.
-     Then `{ping} "PR #<n> (by <author>) — architecture: N findings"` and end your turn, even
-     with no findings. Go through them with the developer here; land the fixes they ask for. On
-     their OK, `gh pr edit <n> --add-label factory:arch-approved`, then step 4.
+   - **Already labelled `factory:arch-approved`** → an earlier step's gate covered it: step 4.
+   - **Someone else** (a teammate, the requester) → **architecture first, as a gate — for all of
+     the card's adopted PRs together**, because they are one design split across PRs. The other
+     `#<n>` items of the card's checklist name them. Run `pre-pr-review` with
+     `only=architecture`, the architecture reviewer alone:
+     - a **stack** (each PR based on the previous one's branch): once, on the top PR's branch —
+       its diff from `main` holds the whole stack. Check it out read-only beside yours
+       (`git worktree add .worktrees/<your dir>-arch <top branch>`; remove it afterwards);
+     - **independent** PRs: once per PR, each in such a worktree.
+     Attribute every finding to the PR whose code it is in. Then
+     `{ping} "card PRs #<a>, #<b> (by <author>) — architecture: N findings"` and end your turn,
+     even with no findings. Go through them with the developer here; land each fix they ask for
+     in the PR it belongs to (another step's PR included — push to its branch). On their OK,
+     `gh pr edit <each n> --add-label factory:arch-approved` and add `Architecture reviewed at
+     <sha>` to each PR's body, then step 4.
    - **The developer** → step 4 directly.
 4. Run the full `pre-pr-review` (step 2 only over code changed since the architecture review, as
    the skill says). The PR exists: update its body and keep it open — no `gh pr create`.

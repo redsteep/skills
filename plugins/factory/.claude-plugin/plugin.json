@@ -1,6 +1,6 @@
 {
   "name": "factory",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "A software factory on your own box: Trello cards labelled `ready` become one PR per step, at most three in flight. A dispatcher on a timer starts one background Claude worker per step; you approve each step's spec and review each PR from the Claude app, pinged on Slack when a step waits for you. Only the tiniest PRs auto-merge, through a deterministic gate hook.",
   "author": {
     "name": "Stanislav Krasnoyarov",
