@@ -1,0 +1,17 @@
+{
+  "description": "Factory: inside a factory worker, the only merge is `gh pr merge --auto --squash` on a PR that passes the profile's auto-merge gate",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/auto_merge_gate.py\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

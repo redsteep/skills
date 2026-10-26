@@ -1,0 +1,10 @@
+[Unit]
+Description=Run the factory dispatcher every 2 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=2min
+Unit=factory-dispatch.service
+
+[Install]
+WantedBy=timers.target

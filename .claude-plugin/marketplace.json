@@ -48,6 +48,12 @@
       "source": "./plugins/design-review",
       "description": "Adversarial review of a proposed design against the code it lands in — seven named tests from DDD and SOLID, read as a slice across every layer. Before implementation on the spec, and again on the branch to catch drift.",
       "category": "workflow"
+    },
+    {
+      "name": "factory",
+      "source": "./plugins/factory",
+      "description": "A software factory on your own box: Trello cards labelled `ready` become one PR per step, at most three in flight. A dispatcher on a timer runs one background Claude worker per step; you approve each spec and review each PR from the Claude app, pinged on Slack. Only the tiniest PRs auto-merge, through a deterministic gate hook.",
+      "category": "automation"
     }
   ]
 }
