@@ -88,7 +88,10 @@ from its code, not from a spec.
      Attribute every finding to the PR whose code it is in. Then
      `{ping} "card PRs #<a>, #<b> (by <author>) — architecture: N findings"` and end your turn,
      even with no findings. Go through them with the developer here; land each fix they ask for
-     in the PR it belongs to (another step's PR included — push to its branch). On their OK,
+     in the PR it belongs to (another step's PR included — push to its branch). **Their answer to
+     the findings is the sign-off** — don't ask again once the fixes are pushed. Ask again only
+     when a fix came out different from what was agreed, or needed a decision they didn't make;
+     with no findings, their reply to the ping is the sign-off. Then
      `gh pr edit <each n> --add-label factory:arch-approved` and add `Architecture reviewed at
      <sha>` to each PR's body, then step 4.
    - **The developer** → step 4 directly.
