@@ -191,6 +191,16 @@ cd <worktree> && REVIEWED=1 gh pr create --title "..." --body "..."
 
 `git add` explicit paths, never `-A` — nothing stray (local env files, scratch output) rides into the PR. Put a short review summary in the PR body: the ticket or issue, steps skipped and why (e.g. "no UI → step 1 skipped"), mutation counts (killed / covered / equivalent / deferred), each extension's verdict — plus anything **Profile → PR** and the `pr-body` entries ask for.
 
+### The PR exists as a spec-only draft → finish it
+
+A workflow that opens the PR before any code — a draft holding only the design spec, opened
+for the spec's approval (the `factory` plugin does this) — reaches the first round with the PR
+already there. End it like the first round, except: commit, push, replace the draft's body
+with the review summary (keep its spec link and approval record), then `gh pr ready`
+instead of `gh pr create`. `enter-review-after-pr.sh` fires only on `gh pr create`, so turn
+review mode on yourself when the caller wants it. A draft that still holds only the spec is
+the one case where the PR predates the review; everything else about step 7 holds.
+
 ### The PR already exists → update it
 
 A re-review round (after a review iteration's queued fixes landed) ends the same way except
