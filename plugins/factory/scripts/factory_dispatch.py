@@ -435,7 +435,12 @@ class Executor:
 
     def _launch(self, name: str, cwd: Path, template: str, **ctx) -> None:
         prompt = render_prompt(template, self.repo, self.profile, name, **ctx)
+        # A worker inherits the settings of the branch it sits on, and an adopted PR's branch can
+        # predate the repo enabling these plugins — no skills, no reviewer agents, no merge gate.
+        # Loading the marketplace's plugins explicitly makes every worker carry them (no
+        # duplicates where the branch already enables them).
         cmd = ["claude", "--bg", "--name", name, "--remote-control", name,
+               "--plugin-dir", str(PLUGIN_ROOT.parent),
                "--permission-mode", self.profile.get("Settings", "Permission mode", "auto"),
                "--disallowedTools", *deny_list(self.profile), "--", prompt]
         run(cmd, cwd=cwd, env={"FACTORY_WORKER": name, "FACTORY_REPO": str(self.repo)})
