@@ -13,8 +13,8 @@ GATE = Gate(max_lines=30, max_files=3, excluded=("db/migrations/", "*.lock", "sr
 TRIAGE = "Summary\n\nTriage: copy change in one template, nothing open from review."
 
 
-def diff(additions=10, deletions=0, files=("docs/a.md",), labels=("factory",), body=TRIAGE):
-    return Diff(additions, deletions, tuple(files), tuple(labels), body)
+def diff(additions=10, deletions=0, files=("docs/a.md",), labels=("factory",), body=TRIAGE, stacked=()):
+    return Diff(additions, deletions, tuple(files), tuple(labels), body, tuple(stacked))
 
 
 def verdict(command, d=None):
@@ -46,6 +46,10 @@ class GateRules(unittest.TestCase):
 
     def test_pr_without_factory_label_is_refused_however_small(self):
         self.assertEqual(failed_rule(diff(labels=()), GATE), "not a factory PR (no `factory` label)")
+
+    def test_pr_with_a_pr_stacked_on_it_is_refused_however_small(self):
+        self.assertEqual(failed_rule(diff(stacked=(12,)), GATE),
+                         "#12 stacked on it — the developer merges it with a merge commit")
 
     def test_pr_without_triage_reason_is_refused(self):
         self.assertEqual(failed_rule(diff(body="Summary only"), GATE),

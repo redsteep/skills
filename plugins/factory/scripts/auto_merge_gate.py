@@ -32,6 +32,7 @@ class Diff:
     files: tuple[str, ...]
     labels: tuple[str, ...]
     body: str
+    stacked: tuple[int, ...] = ()      # open PRs based on this PR's branch
 
 
 @dataclass(frozen=True)
@@ -53,6 +54,9 @@ def failed_rule(diff: Diff, gate: Gate) -> str | None:
     """The first gate rule the diff breaks, or None when it may auto-merge."""
     if gate.required_label not in diff.labels:
         return f"not a factory PR (no `{gate.required_label}` label)"
+    if diff.stacked:
+        above = ", ".join(f"#{n}" for n in diff.stacked)
+        return f"{above} stacked on it — the developer merges it with a merge commit"
     if not re.search(r"(?m)^Triage:", diff.body):
         return "no `Triage:` paragraph in the PR description"
     changed = diff.additions + diff.deletions
@@ -92,9 +96,13 @@ def judge(command: str, fetch_diff, gate: Gate) -> tuple[str, str] | None:
 
 
 def _fetch_diff(number: str) -> Diff:
-    data = json.loads(run(["gh", "pr", "view", number, "--json", "additions,deletions,files,labels,body"]))
+    data = json.loads(run(["gh", "pr", "view", number, "--json",
+                           "additions,deletions,files,labels,body,headRefName"]))
+    stacked = json.loads(run(["gh", "pr", "list", "--base", data["headRefName"], "--state", "open",
+                              "--json", "number"]) or "[]")
     return Diff(data["additions"], data["deletions"], tuple(f["path"] for f in data["files"]),
-                tuple(l["name"] for l in data["labels"]), data.get("body") or "")
+                tuple(l["name"] for l in data["labels"]), data.get("body") or "",
+                tuple(p["number"] for p in stacked))
 
 
 def main() -> int:

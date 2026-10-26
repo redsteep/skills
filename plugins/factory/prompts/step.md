@@ -68,9 +68,12 @@ from its code, not from a spec.
 
 1. Read the PR (`gh pr view <n>`: author, base, body, diff), the card, and a spec if the PR
    names one.
-2. **Its base.** If it is stacked on another step's branch, wait: that step merges first, and
-   its worker retargets this PR onto `{base}` before you start. If you find it still stacked on a
-   merged branch, retarget it yourself (`gh pr edit <n> --base {base}`, rebase, push).
+2. **Its base.** A PR stacked on an earlier step's branch reaches you after that step merged
+   with a merge commit and the dispatcher deleted its branch — GitHub then repoints this PR onto
+   `{base}` itself. Check (`gh pr view <n> --json baseRefName`); if it still names the old
+   branch, `gh pr edit <n> --base {base}`. If that step was squash-merged after all, this PR still
+   carries its original commits: `git rebase --onto origin/{base} <that PR's headRefOid> <branch>`,
+   `git push --force-with-lease`.
 3. **Who wrote it decides the first stage.** Compare the PR's author with the profile's
    `Developer GitHub` login.
    - **Already labelled `factory:arch-approved`** → an earlier step's gate covered it: step 4.
@@ -94,9 +97,18 @@ from its code, not from a spec.
 5. *Triage*, then *Handoff* as for any step. Fix PRs for an adopted step use branches
    `{fix_prefix}<M>`.
 
-When this PR merges and a later step adopts a PR stacked on this branch, retarget that PR onto
-`{base}` (`gh pr edit <later> --base {base}`) **before anything deletes this branch** — GitHub closes
-a PR whose base branch is deleted.
+**Stacks.** While your step runs, you own every adopted PR of the card stacked above yours —
+no other worker exists yet, and the dispatcher sends you events for your PR only.
+
+- After any push to a PR that has PRs stacked on it, bring each one up to date bottom-up by
+  **merging** the branch below into it (`git merge origin/<lower branch>`, push) — never a rebase:
+  these are someone else's branches, and a merge needs no force-push.
+- A PR that is the base of another open PR merges with a **merge commit**, by the developer: the
+  auto-merge gate refuses it, so it always takes the review path. Say so in the review ping
+  (`"PR #<n> ready for review — merge with a merge commit, #<m> is stacked on it"`). A squash
+  would leave the PR above carrying commits main no longer has.
+- After the merge, nothing to do: the dispatcher deletes your branch at cleanup and GitHub
+  repoints the PR above onto `{base}`.
 
 ## Build
 

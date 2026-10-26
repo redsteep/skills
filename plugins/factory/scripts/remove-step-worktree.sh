@@ -10,8 +10,9 @@
 # Env FACTORY_CLEANUP: the profile's `## Cleanup` bash block, run first with $WT set, while the
 # worktree still exists (per-worktree caches a project needs deleted).
 #
-# The remote branch is kept while an open PR is based on it: GitHub closes a PR whose base
-# branch is deleted (a stacked PR a later step adopts).
+# A remote branch whose PR merged is deleted: GitHub then repoints any open PR based on it
+# onto the merged PR's base (a stacked PR a later step adopts). An unmerged branch is kept while
+# an open PR is based on it — deleting it would close that PR.
 set -uo pipefail
 
 REPO="${1:?usage: remove-step-worktree.sh <repo> <worktree> <branch> [<fix-prefix>]}"
@@ -29,9 +30,11 @@ if [[ -d "$WT" ]]; then
 fi
 
 delete_remote() {
-  local b="$1"
-  if [[ -n "$(gh pr list --repo "$(git -C "$REPO" remote get-url origin)" --base "$b" --state open --json number --jq '.[].number' 2>/dev/null)" ]]; then
-    echo "keeping origin/$b: an open PR is based on it" >&2
+  local b="$1" origin
+  origin="$(git -C "$REPO" remote get-url origin)"
+  if [[ -z "$(gh pr list --repo "$origin" --head "$b" --state merged --json number --jq '.[].number' 2>/dev/null)" ]] \
+     && [[ -n "$(gh pr list --repo "$origin" --base "$b" --state open --json number --jq '.[].number' 2>/dev/null)" ]]; then
+    echo "keeping origin/$b: unmerged, and an open PR is based on it" >&2
     return
   fi
   git -C "$REPO" push origin --delete "$b" 2>/dev/null
