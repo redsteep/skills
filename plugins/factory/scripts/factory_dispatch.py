@@ -17,7 +17,9 @@ import json
 import os
 import re
 import shlex
+import shutil
 import sys
+import time
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
@@ -443,6 +445,13 @@ class Executor:
                "--plugin-dir", str(PLUGIN_ROOT.parent),
                "--permission-mode", self.profile.get("Settings", "Permission mode", "auto"),
                "--disallowedTools", *deny_list(self.profile), "--", prompt]
+        # `claude --bg` hands the session to a background daemon, started on demand by whoever
+        # launches first. Started from the dispatch service, that daemon would live in the
+        # service's cgroup and die with it the moment the oneshot exits — every worker with it.
+        # A transient scope of its own keeps it outside.
+        if shutil.which("systemd-run"):
+            cmd = ["systemd-run", "--user", "--scope", "--quiet", "--collect",
+                   f"--unit=factory-launch-{name}-{int(time.time())}", *cmd]
         run(cmd, cwd=cwd, env={"FACTORY_WORKER": name, "FACTORY_REPO": str(self.repo)})
 
 
