@@ -1,0 +1,22 @@
+# Runner deny list shared by the unattended runners (nightly-backlog, factory) — one
+# --disallowedTools rule per line. It does not depend on the model's judgement; hooks and the
+# permission mode are the other two layers. A runner may drop a rule another layer replaces
+# (factory drops `gh pr merge`: its auto-merge gate hook decides those) and adds the project's
+# own rules from its profile's `## Deny`.
+Bash(git push origin main:*)
+Bash(git push origin master:*)
+Bash(git push -f:*)
+Bash(git push --force:*)
+Bash(gh pr merge:*)
+Bash(gh issue edit:*)
+Bash(gh issue close:*)
+Bash(gh issue comment:*)
+Bash(gh label:*)
+Bash(gh workflow:*)
+Bash(gh secret:*)
+Bash(aws:*)
+Bash(gcloud:*)
+Bash(az:*)
+Bash(kubectl:*)
+Bash(terraform:*)
+Bash(ssh:*)

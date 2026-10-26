@@ -40,27 +40,15 @@ flock -n 9 || { echo "nightly-backlog: previous run still active" >&2; exit 0; }
 
 cd "$REPO"
 
-# Everything the agent must not do unattended. Hooks and the permission mode are the
-# other two layers; this one does not depend on the model's judgement.
-DENY=(
-  "Bash(git push origin main:*)"
-  "Bash(git push origin master:*)"
-  "Bash(git push -f:*)"
-  "Bash(git push --force:*)"
-  "Bash(gh pr merge:*)"
-  "Bash(gh issue edit:*)"
-  "Bash(gh issue close:*)"
-  "Bash(gh issue comment:*)"
-  "Bash(gh label:*)"
-  "Bash(gh workflow:*)"
-  "Bash(gh secret:*)"
-  "Bash(aws:*)"
-  "Bash(gcloud:*)"
-  "Bash(az:*)"
-  "Bash(kubectl:*)"
-  "Bash(terraform:*)"
-  "Bash(ssh:*)"
-)
+# Everything the agent must not do unattended: the deny list shared with the other runners,
+# <marketplace>/shared/runner-deny.txt. Hooks and the permission mode are the other two
+# layers; this one does not depend on the model's judgement.
+DENY_FILE="$(dirname "$(readlink -f "$0")")/../../../shared/runner-deny.txt"
+[[ -f "$DENY_FILE" ]] || { echo "nightly-backlog: missing $DENY_FILE" >&2; exit 1; }
+DENY=()
+while IFS= read -r rule; do
+  [[ -n "$rule" && "$rule" != \#* ]] && DENY+=("$rule")
+done < "$DENY_FILE"
 
 PROFILE="$REPO/.claude/nightly-backlog.md"
 
