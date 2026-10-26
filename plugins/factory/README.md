@@ -29,7 +29,7 @@ the worker closes the issue. Label only issues that need no design decision; a w
 one pings you.
 
 In the Claude app a worker shows by what it works on — `factory · <card> · 1/2`,
-`factory · #414 <issue title>` — while `factory-<card>-s<N>` stays its routing name.
+`factory · #<n> <issue title>` — while `factory-<card>-s<N>` stays its routing name.
 
 ## How it runs
 
