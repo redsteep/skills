@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
-"""PreToolUse(Bash) hook: the only way a factory worker merges is `gh pr merge --auto --squash`
-on a PR that passes the profile's `## Auto-merge` gate. Every other merge route is denied.
+"""PreToolUse(Bash) hook: the only way a factory worker merges is the command its profile
+declares, on a PR that passes the profile's `## Auto-merge` gate. Every other merge route is denied.
+
+The gate is two things the project owns: the flags the merge must carry (`Merge command`) and a
+command that must exit 0 first (`Precondition`) -- whatever "safe to merge right now" means in that
+project, said in its own terms. The hook keeps only what no project may relax: no merge through
+`gh api`, no push to the base branch, no `--admin`, one PR number, no shell metacharacters, the
+factory label, no PR stacked on this one, a `Triage:` paragraph, and the excluded paths.
 
 Applies only inside a factory worker (env FACTORY_WORKER, set by the dispatcher). Outside one it
 exits 0 silently and the session's normal permissions apply. The worker's judgement can only
@@ -14,6 +20,7 @@ import json
 import os
 import re
 import shlex
+import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -35,19 +42,28 @@ class Diff:
     stacked: tuple[int, ...] = ()      # open PRs based on this PR's branch
 
 
+DEFAULT_MERGE = "gh pr merge --auto --squash"
+
+
 @dataclass(frozen=True)
 class Gate:
-    max_lines: int
-    max_files: int
+    required_args: tuple[str, ...]     # flags the merge command must carry, from `Merge command`
+    precondition: str                  # shell command that must exit 0; "" = none
     excluded: tuple[str, ...]          # fnmatch globs; a trailing / means "anything under"
     required_label: str = "factory"
 
     @classmethod
     def from_profile(cls, profile: Profile) -> "Gate":
-        return cls(int(profile.get("Auto-merge", "Max changed lines", "0")),
-                   int(profile.get("Auto-merge", "Max files", "0")),
+        declared = profile.get("Auto-merge", "Merge command", DEFAULT_MERGE) or DEFAULT_MERGE
+        args = [a for a in shlex.split(declared)[3:] if a.startswith("-")]
+        return cls(tuple(args),
+                   profile.get("Auto-merge", "Precondition", "") or "",
                    tuple(profile.items("Auto-merge")),
                    profile.get("GitHub", "Label", "factory") or "factory")
+
+    @property
+    def shape(self) -> str:
+        return " ".join(("gh pr merge", *self.required_args, "<number>"))
 
 
 def failed_rule(diff: Diff, gate: Gate) -> str | None:
@@ -59,11 +75,6 @@ def failed_rule(diff: Diff, gate: Gate) -> str | None:
         return f"{above} stacked on it — the developer merges it with a merge commit"
     if not re.search(r"(?m)^Triage:", diff.body):
         return "no `Triage:` paragraph in the PR description"
-    changed = diff.additions + diff.deletions
-    if changed > gate.max_lines:
-        return f"{changed} changed lines > {gate.max_lines}"
-    if len(diff.files) > gate.max_files:
-        return f"{len(diff.files)} files > {gate.max_files}"
     for path in diff.files:
         for pattern in gate.excluded:
             hit = path.startswith(pattern) if pattern.endswith("/") else fnmatch.fnmatch(path, pattern)
@@ -72,24 +83,44 @@ def failed_rule(diff: Diff, gate: Gate) -> str | None:
     return None
 
 
-def judge(command: str, fetch_diff, gate: Gate) -> tuple[str, str] | None:
+def precondition_failed(gate: Gate, number: str, repo: Path) -> str | None:
+    """The project's own "safe to merge right now" check. Its output is the reason, so a project
+    says why in its own words; a non-zero exit with no output still denies."""
+    if not gate.precondition:
+        return None
+    try:
+        out = subprocess.run(["bash", "-c", gate.precondition.replace("<number>", number)],
+                             cwd=repo, capture_output=True, text=True, timeout=90)
+    except subprocess.TimeoutExpired:
+        return "precondition timed out"
+    if out.returncode == 0:
+        return None
+    said = (out.stdout or out.stderr or "").strip().splitlines()
+    return said[-1] if said else f"precondition exited {out.returncode}"
+
+
+def judge(command: str, fetch_diff, gate: Gate, repo: Path = Path(".")) -> tuple[str, str] | None:
     """(decision, reason) for a factory worker's Bash command; None = not a merge, no opinion."""
     if PUSH_MAIN.search(command):
         return "deny", "factory workers never push to main"
     if re.search(r"\bgh\s+api\b", command) and MERGE_API.search(command):
-        return "deny", "merging through `gh api` is not allowed — use `gh pr merge --auto --squash`"
+        return "deny", f"merging through `gh api` is not allowed — use `{gate.shape}`"
     m = re.search(r"\bgh\s+pr\s+merge\b(.*)", command)
     if not m:
         return None
     if re.search(r"[;&|`$]", command):
-        return "deny", "run `gh pr merge --auto --squash <number>` as a command of its own"
+        return "deny", f"run `{gate.shape}` as a command of its own"
     args = shlex.split(m[1])
-    if "--auto" not in args or not ({"--squash", "-s"} & set(args)) or {"--admin", "--delete-branch", "-d"} & set(args):
-        return "deny", "the only allowed merge is `gh pr merge --auto --squash <number>`"
+    missing = [a for a in gate.required_args if a not in args]
+    if missing or {"--admin", "--delete-branch", "-d"} & set(args):
+        return "deny", f"the only allowed merge is `{gate.shape}`"
     numbers = [a for a in args if a.isdigit()]
     if len(numbers) != 1:
-        return "deny", "name the PR number explicitly: `gh pr merge --auto --squash <number>`"
+        return "deny", f"name the PR number explicitly: `{gate.shape}`"
     rule = failed_rule(fetch_diff(numbers[0]), gate)
+    if rule:
+        return "deny", f"auto-merge gate: {rule}. Take the review path instead."
+    rule = precondition_failed(gate, numbers[0], repo)
     if rule:
         return "deny", f"auto-merge gate: {rule}. Take the review path instead."
     return "allow", f"auto-merge gate passed for PR #{numbers[0]}"
@@ -112,13 +143,13 @@ def main() -> int:
     command = (event.get("tool_input") or {}).get("command", "")
     repo = Path(os.environ.get("FACTORY_REPO") or event.get("cwd") or ".")
     gate = Gate.from_profile(Profile.load(repo))
-    verdict = judge(command, _fetch_diff, gate)
+    verdict = judge(command, _fetch_diff, gate, repo)
     if verdict is None:
         return 0
     decision, reason = verdict
-    if decision == "allow":
-        number = re.findall(r"\d+", command.split("merge", 1)[1])[0]
-        run(["gh", "pr", "edit", number, "--add-label", "factory:auto-merged"], check=False)
+    # The `factory:auto-merged` label is the worker's to add after the command returns: a hook that
+    # runs before it cannot know whether the merge happened, and every denied attempt used to leave
+    # the label behind.
     print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse",
                                              "permissionDecision": decision,
                                              "permissionDecisionReason": reason}}))

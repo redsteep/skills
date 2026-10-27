@@ -10,9 +10,10 @@ You make the decisions only you can make, from the Claude app on your Mac or pho
 spec, each PR's review and merge, "test it manually first?", and every message to the requester.
 Whenever a step waits for you, its worker DMs you on Slack with a link to its conversation.
 
-Only the tiniest PRs skip your review: the worker may run `gh pr merge --auto --squash`, and a
-hook lets it through only when the diff passes the gate in your profile. Start strict; relax the
-gate by editing the profile.
+Only the tiniest PRs skip your review: the worker may run the one merge command your profile
+declares, and a hook lets it through only when the PR passes the gate in your profile — its
+excluded paths and its `Precondition`, a command of yours that must exit 0 first. Start strict;
+relax the gate by editing the profile.
 
 **Cards that already have PRs.** The split worker turns each open PR linked on the card into a
 step named `#<n> …`, and the factory adopts it instead of building it: no spec phase, the PR's own
@@ -39,7 +40,7 @@ systemd timer (2 min) → factory-dispatch (a script, no LLM): read GitHub, Trel
                          → start split / step / replacement workers   (claude --bg --remote-control)
                          → send status events to live workers         (cross-session messaging)
                          → clean up finished steps                    (the only cleanup owner)
-worker (one per step)  → spec (subagent) → design-review → draft PR → ping → your approval
+worker (one per step)  → spec (subagent) → design-review → spec on the branch → ping → approval
                          → build (subagents) → pre-pr-review → triage → ping or auto-merge
                          → on merge: the project's handoff skill, step=n/total → item checked → done
 ```
@@ -54,8 +55,8 @@ in the Slack DM) and type. Events from the dispatcher start with `Factory event:
 ## Setup
 
 1. **Profile** — copy `profile-template.md` to `<repo>/.claude/factory.md` and fill it in.
-2. **Labels** — once per repo: `gh label create factory`, `gh label create factory:spec-approved`,
-   `gh label create factory:auto-merged`, `gh label create factory:arch-approved`; and a `ready` label on the Trello board.
+2. **Labels** — once per repo: `gh label create factory`, `gh label create factory:auto-merged`,
+   `gh label create factory:arch-approved`; and a `ready` label on the Trello board.
 3. **Secrets** — `TRELLO_API_KEY`, `TRELLO_TOKEN` and, optionally, `FACTORY_SLACK_TOKEN` (a **bot**
    token with `chat:write` and `im:write`; a DM from your own user would not notify you), from the
    environment, `~/.config/factory/env` (`chmod 600`), or the repo's `.env` — only these keys are
@@ -95,9 +96,10 @@ in the Slack DM) and type. Events from the dispatcher start with `Factory event:
 1. **Runner deny list** — `<marketplace>/shared/runner-deny.txt`, shared with nightly-backlog:
    no push to main, no force-push, no `gh workflow` / `gh secret`, no cloud CLIs, no `ssh`; plus
    the profile's `## Deny`. Factory drops only `gh pr merge` from it, because:
-2. **`auto-merge-gate` hook** — inside a worker, the only merge is `gh pr merge --auto --squash
-   <n>`, alone on its line, on a `factory` PR with a `Triage:` paragraph whose diff passes the
-   profile's `## Auto-merge`; `gh api` merges and pushes to main are denied too.
+2. **`auto-merge-gate` hook** — inside a worker, the only merge is the profile's **Merge command**,
+   alone on its line, on a `factory` PR with a `Triage:` paragraph, no PR stacked on it, no
+   excluded path, and the profile's **Precondition** exiting 0; `gh api` merges, `--admin` and
+   pushes to main are denied too.
 3. **The prompts** — a worker writes no code before your approval, posts nothing to anyone but you
    without your yes, and its judgement can only send a PR to review, never past it.
 4. **Locks** — handoffs and migration round-trips run one worker at a time (`factory-lock`).
