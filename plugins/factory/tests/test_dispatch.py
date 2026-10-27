@@ -324,5 +324,40 @@ class CleanupRule(unittest.TestCase):
         self.assertEqual([a for a in decide(w) if isinstance(a, Cleanup)], [])
 
 
+class DeadAndRestartingWorkers(unittest.TestCase):
+    """`dead`: listed with no process. `restarting`: seen alive within the grace, now missing or
+    without a process — it counts as live, so a restart never gets a twin."""
+
+    def test_dead_worker_of_an_unfinished_step_is_replaced(self):
+        w = world([card("a", [todo()])], branches=["feature/factory-a-s1"], workers={"factory-a-s1": "dead"})
+        self.assertEqual(started(decide(w)), [("a", 1, IN_PROGRESS)])
+
+    def test_dead_worker_is_sent_no_events(self):
+        w = world([card("a", [todo()])], prs=[pr(7, "feature/factory-a-s1", "CLOSED")],
+                  branches=["feature/factory-a-s1"], workers={"factory-a-s1": "dead"})
+        self.assertEqual([a for a in decide(w) if isinstance(a, SendEvent)], [])
+
+    def test_dead_worker_of_a_done_step_is_cleaned(self):
+        w = world([card("a", [done()])], branches=["feature/factory-a-s1"], workers={"factory-a-s1": "dead"})
+        self.assertIn(Cleanup("factory-a-s1", "feature/factory-a-s1", "feature/factory-a-s1-fix"), decide(w))
+
+    def test_dead_worker_of_a_card_no_longer_ready_is_cleaned(self):
+        w = world([card("a", [todo()], ready=False)], prs=[pr(7, "feature/factory-a-s1", "CLOSED")],
+                  branches=["feature/factory-a-s1"], workers={"factory-a-s1": "dead"})
+        self.assertIn(Cleanup("factory-a-s1", "feature/factory-a-s1", "feature/factory-a-s1-fix"), decide(w))
+
+    def test_dead_split_worker_is_replaced(self):
+        w = world([card("a")], workers={"factory-a-split": "dead"})
+        self.assertEqual([a.card.short for a in decide(w) if isinstance(a, StartSplit)], ["a"])
+
+    def test_restarting_worker_is_not_replaced(self):
+        w = world([card("a", [todo()])], branches=["feature/factory-a-s1"], workers={"factory-a-s1": "restarting"})
+        self.assertEqual(started(decide(w)), [])
+
+    def test_restarting_worker_of_a_done_step_is_not_cleaned(self):
+        w = world([card("a", [done()])], branches=["feature/factory-a-s1"], workers={"factory-a-s1": "restarting"})
+        self.assertEqual([a for a in decide(w) if isinstance(a, Cleanup)], [])
+
+
 if __name__ == "__main__":
     unittest.main()

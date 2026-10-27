@@ -85,6 +85,9 @@ in the Slack DM) and type. Events from the dispatcher start with `Factory event:
   `rm` it to resume.
 - **Logs:** `journalctl --user -u factory-dispatch` (each dispatch prints what it did).
 - **Workers:** `claude agents` lists them; `claude attach <id>` opens one in a terminal.
+- **A worker with no process** (listed by `claude agents` but not running) counts as dead: its
+  step gets a fresh worker, or its session is removed when the step is done. One seen alive in the
+  last 10 minutes counts as restarting instead — never replaced, so a restart gets no twin.
 - **Stop a card:** remove its `ready` label; idle workers of that card are cleaned up.
 
 ## Safety

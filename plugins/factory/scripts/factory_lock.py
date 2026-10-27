@@ -67,7 +67,7 @@ def main() -> int:
         print("released" if release(name, owner) else "not held by you")
         return 0
     announced = False
-    while (holder := try_acquire(name, owner, lambda w: w in factory_common.live_workers())) is not None:
+    while (holder := try_acquire(name, owner, lambda w: factory_common.live_workers().get(w, {}).get("status", "dead") != "dead")) is not None:
         if not announced:
             print(f"factory-lock: {name} held by {holder}, waiting…", flush=True)
             announced = True

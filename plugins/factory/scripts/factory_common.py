@@ -10,11 +10,13 @@ import os
 import re
 import subprocess
 from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 STATE_DIR = Path(os.environ.get("FACTORY_STATE_DIR", Path.home() / ".local/state/factory"))
 SENT_FILE = STATE_DIR / "sent-events.json"
 PAUSE_FILE = STATE_DIR / "PAUSED"
+SEEN_FILE = STATE_DIR / "workers-seen.json"
 
 WORKER_PREFIX = "factory-"
 BRANCH_PREFIX = "feature/factory-"
@@ -162,8 +164,65 @@ def run(cmd: list[str], cwd: Path | None = None, check: bool = True, timeout: in
     return proc.stdout
 
 
-def live_workers() -> dict[str, dict]:
-    """Background Claude sessions named factory-*, by name (`claude agents --json`)."""
-    agents = json.loads(run(["claude", "agents", "--json"]) or "[]")
-    return {a["name"]: a for a in agents
-            if a.get("kind") == "background" and str(a.get("name", "")).startswith(WORKER_PREFIX)}
+# A restarting session drops out of `claude agents`, or loses its process, for a moment. Within
+# this long of last being seen alive it still counts as live, so a restart never gets a twin.
+WORKER_GRACE = timedelta(minutes=10)
+
+
+def is_worker(agent: dict) -> bool:
+    return agent.get("kind") == "background" and str(agent.get("name", "")).startswith(WORKER_PREFIX)
+
+
+def list_agents() -> list[dict]:
+    """Background Claude sessions named factory-*, as `claude agents --json` lists them — dead
+    ones and same-name twins included."""
+    return [a for a in json.loads(run(["claude", "agents", "--json"]) or "[]") if is_worker(a)]
+
+
+def worker_view(agents: list[dict], seen: dict[str, datetime], now: datetime
+                ) -> tuple[dict[str, dict], dict[str, datetime]]:
+    """Workers by name, and when each was last seen alive. A session with a process keeps its
+    status; one seen alive within WORKER_GRACE but missing or without a process now reads
+    `restarting`; one listed without a process beyond that reads `dead`."""
+    listed: dict[str, dict] = {}
+    for a in filter(is_worker, agents):
+        if a["name"] not in listed or a.get("pid"):
+            listed[a["name"]] = a
+    workers, fresh = {}, {}
+    for name, a in listed.items():
+        if a.get("pid"):
+            workers[name], fresh[name] = a, now
+    for name, at in seen.items():
+        if name not in workers and at >= now - WORKER_GRACE:
+            workers[name], fresh[name] = {**listed.get(name, {}), "status": "restarting"}, at
+    for name, a in listed.items():
+        workers.setdefault(name, {**a, "status": "dead"})
+    return workers, fresh
+
+
+def _read_seen() -> dict[str, datetime]:
+    return ({k: datetime.fromisoformat(v) for k, v in json.loads(SEEN_FILE.read_text()).items()}
+            if SEEN_FILE.exists() else {})
+
+
+def _write_seen(seen: dict[str, datetime]) -> None:
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    tmp = SEEN_FILE.with_suffix(".tmp")
+    tmp.write_text(json.dumps({k: v.isoformat() for k, v in seen.items()}, indent=0))
+    tmp.replace(SEEN_FILE)
+
+
+def live_workers(record: bool = False) -> dict[str, dict]:
+    """The workers as `worker_view` reads them. Only the dispatcher records sightings
+    (`record=True`); a worker's own scripts just read them."""
+    workers, seen = worker_view(list_agents(), _read_seen(), datetime.now(timezone.utc))
+    if record:
+        _write_seen(seen)
+    return workers
+
+
+def mark_launched(name: str) -> None:
+    """A just-launched worker counts as seen alive, so it is not replaced before it is listed."""
+    seen = _read_seen()
+    seen[name] = datetime.now(timezone.utc)
+    _write_seen(seen)

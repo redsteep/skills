@@ -29,7 +29,8 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from factory_common import (  # noqa: E402
-    PAUSE_FILE, STATE_DIR, Profile, issue_short, live_workers, load_repo_secrets, parse_worker_name, run,
+    PAUSE_FILE, STATE_DIR, Profile, issue_short, list_agents, live_workers, load_repo_secrets, mark_launched,
+    parse_worker_name, run,
     sent_store, split_name, step_branch, step_name,
 )
 
@@ -85,7 +86,7 @@ class World:
     cards: tuple[Card, ...]          # in board order: list position, then card position
     prs: tuple[PR, ...]              # factory PRs, any state
     branches: frozenset[str]         # local branches
-    workers: dict                    # live worker name → {"status": "idle"|"busy", ...}
+    workers: dict                    # worker name → {"status": "idle"|"busy"|"restarting"|"dead", ...}
     sent: frozenset[str]             # event keys already delivered
     wip: int = 3
     label: str = "factory"           # the GitHub label that makes a PR the factory's
@@ -238,13 +239,18 @@ def pr_events(pr: PR) -> list[tuple[str, str]]:
 
 
 # --- the decision ----------------------------------------------------------------------------
+def _alive(world: World, name: str) -> bool:
+    """Listed and not dead — a restarting worker counts, so it gets no twin."""
+    return name in world.workers and world.workers[name].get("status") != "dead"
+
+
 def decide(world: World) -> list:
     actions: list = []
     all_steps = {c.short: card_steps(c, world) for c in world.cards if c.items is not None}
 
     # 1. A ready card with no step list gets one split worker.
     for card in world.cards:
-        if card.ready and card.items is None and split_name(card.short) not in world.workers:
+        if card.ready and card.items is None and not _alive(world, split_name(card.short)):
             actions.append(StartSplit(card))
 
     for card in world.cards:
@@ -254,12 +260,12 @@ def decide(world: World) -> list:
             prs = step_all_prs(step, world.prs)
             keys = [k for p in prs for k, _ in pr_events(p) if k not in world.sent]
             # 2. A step that needs a worker and has none gets a replacement.
-            if step.state in NEEDS_WORKER and step.worker not in world.workers:
+            if step.state in NEEDS_WORKER and not _alive(world, step.worker):
                 actions.append(StartStep(step, recovered=step.state))
                 if keys:
                     actions.append(MarkSent(tuple(keys)))
             # 3. A live worker hears about every change to its PRs once.
-            elif step.worker in world.workers:
+            elif _alive(world, step.worker):
                 for pr in prs:
                     for key, text in pr_events(pr):
                         if key not in world.sent:
@@ -291,7 +297,7 @@ def decide(world: World) -> list:
     # 5. Done steps and stopped cards are cleaned up; the dispatcher is the only cleanup owner.
     for name, info in world.workers.items():
         parsed = parse_worker_name(name)
-        if parsed is None or info.get("status") != "idle":
+        if parsed is None or info.get("status") not in ("idle", "dead"):
             continue
         short, n = parsed
         card = next((c for c in world.cards if c.short == short), None)
@@ -484,10 +490,10 @@ class Executor:
 
     def _Cleanup(self, a: Cleanup) -> None:
         if a.worker:
-            agent = live_workers().get(a.worker)
-            if agent:
-                run(["claude", "stop", agent["id"]], check=False)
-                run(["claude", "rm", agent["id"]], check=False)
+            for agent in list_agents():  # every session of that name, a dead twin included
+                if agent["name"] == a.worker:
+                    run(["claude", "stop", agent["id"]], check=False)
+                    run(["claude", "rm", agent["id"]], check=False)
         if a.branch:
             worktree = self._worktrees / a.branch.rsplit("/", 1)[-1]
             run([str(PLUGIN_ROOT / "scripts/remove-step-worktree.sh"), str(self.repo), str(worktree),
@@ -495,6 +501,15 @@ class Executor:
                 env={"FACTORY_CLEANUP": self.profile.code_block("Cleanup") or ""})
 
     def _launch(self, name: str, cwd: Path, template: str, title: str, **ctx) -> None:
+        # Checked again here: the decision is minutes old by now (the worktree setup alone runs
+        # npm and poetry), and a worker that came back meanwhile must not get a twin. Dead
+        # sessions of the name go first, so the name stays one session.
+        same_name = [a for a in list_agents() if a["name"] == name]
+        if any(a.get("pid") for a in same_name):
+            raise RuntimeError(f"{name} is live again — not launching a twin")
+        for agent in same_name:
+            run(["claude", "stop", agent["id"]], check=False)
+            run(["claude", "rm", agent["id"]], check=False)
         prompt = render_prompt(template, self.repo, self.profile, name, **ctx)
         # A worker inherits the settings of the branch it sits on, and an adopted PR's branch can
         # predate the repo enabling these plugins — no skills, no reviewer agents, no merge gate.
@@ -515,6 +530,7 @@ class Executor:
             cmd = ["systemd-run", "--user", "--scope", "--quiet", "--collect",
                    f"--unit=factory-launch-{name}-{int(time.time())}", *cmd]
         run(cmd, cwd=cwd, env={"FACTORY_WORKER": name, "FACTORY_REPO": str(self.repo)})
+        mark_launched(name)
 
 
 # Shared runner rules the factory replaces: the auto-merge gate hook decides merges, and an
@@ -627,7 +643,7 @@ def main() -> int:
         cards=cards,
         prs=load_prs(repo, label, adopted),
         branches=load_branches(repo),
-        workers=live_workers(),
+        workers=live_workers(record=True),
         sent=sent_now,
         wip=int(profile.get("Settings", "WIP", "3")),
         label=label,
