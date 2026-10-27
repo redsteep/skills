@@ -1,6 +1,6 @@
 {
   "name": "review-mode",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "While you read a PR, Claude answers questions and runs things but queues change requests instead of editing. Turns on automatically after `gh pr create`.",
   "author": {
     "name": "Stanislav Krasnoyarov",
