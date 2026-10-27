@@ -121,6 +121,10 @@ without a design decision. No spec, no checklist, no card — the issue is the w
    after all — a new mechanism, options to choose between, an API contract change, a schema
    change the issue doesn't spell out, anything visible in the UI — run
    `{ping} "issue #<n> needs a decision: <question>"` and end your turn; the developer answers here.
+   If `origin/{base}` already does what the issue asks — another PR got there first — it is no
+   decision: `gh issue close <n> --comment "Already done in #<pr>: <where it lives now>"` (any
+   leftover difference, a name or a detail, goes in the comment) and end your turn; the dispatcher
+   then stops you. Only when part of the ask is still missing, build that part.
 2. **Off limits** for an issue: {issue_off_limits}.
 3. *Build*, steps 1–2. pre-pr-review opens the PR at its step 7: add `--label factory` and write
    `Refs #<n>` in the body — never `Closes`/`Fixes`: the issue closes only after the beta check.
