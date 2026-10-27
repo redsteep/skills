@@ -5,9 +5,12 @@ from what is on record — the step's PR and fix PRs (`gh pr list --head {branch
 checklist item, and the card. Then continue from the first unfinished phase below; never redo
 finished work and never restart a step that has a PR.
 
-- `in-progress`, no PR → the spec may be half written: look at the branch, finish *Spec*.
-- `in-progress`, draft PR without `factory:spec-approved` → the spec waits for the developer: ping.
-- `in-progress`, `factory:spec-approved` → *Build* (or *Triage*, if the PR is already ready for review).
+- `in-progress`, no PR and no spec commit on the branch → finish *Spec*.
+- `in-progress`, no PR, a spec on the branch, no `Approved-by:` trailer (`git fetch`, then
+  `git log origin/{branch}` — the dispatcher may have reused this worktree without fetching) →
+  the spec waits for the developer: ping.
+- `in-progress`, no PR, an `Approved-by:` trailer → *Build*.
+- `in-progress`, a PR of your own branch → *Triage*: *Build* already opened it.
 - `in-progress`, an adopted PR → *Adopted PR*: without `factory:arch-approved` and not written by
   the developer, the card's architecture gate waits on them (re-run it over all the card's
   adopted PRs if the PR body has no `Architecture reviewed at` line, then ping); with the label,
