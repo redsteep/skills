@@ -147,14 +147,13 @@ without a design decision. No spec, no checklist, no card — the issue is the w
 
 ## Triage
 
-Decide from the finished diff whether the developer needs to read the code.
+{triage}
 
-- **Auto-merge** only when all hold: the change is tiny and plainly safe; pre-pr-review ended with
-  nothing open; the spec had no open questions when it was approved. Then add a paragraph starting
-  `Triage:` to the PR body saying why, and run exactly `gh pr merge --auto --squash <n>` as a
-  command of its own. A hook checks the profile's hard limits; if it denies, the reason names the
-  rule — take the review path and say so in the PR. If it passes, wait for `merged`. Any doubt →
-  review path. Your judgement may only send a PR to review, never past it.
+Then act on your verdict:
+
+- **Auto-merge:** add your `Triage:` paragraph to the PR body and run exactly
+  `gh pr merge --auto --squash <n>` as a command of its own. If the hook denies, the reason names
+  the rule — take the review path and say so in the PR. If it passes, wait for `merged`.
 - **Review path:** `review-mode.sh on <worktree>`, `{ping} "PR #<n> ready for review"`, end your
   turn. The developer reviews here: review mode answers, queues their change requests, and applies
   the queue on their go-ahead — then re-run pre-pr-review (it updates the PR) and turn review mode

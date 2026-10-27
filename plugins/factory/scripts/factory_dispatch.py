@@ -557,6 +557,13 @@ def _entry(step: Step | None) -> str:
 def render_prompt(template: str, repo: Path, profile: Profile, name: str, card: Card,
                   step: Step | None = None, total: int = 0, recovered: str = "") -> str:
     text = (PLUGIN_ROOT / "prompts" / template).read_text()
+    # The triage decision is its own template so the eval can run it alone (evals/pr_triage.py);
+    # here it is filled the way a worker reaches its PR.
+    text = text.replace("{triage}", (PLUGIN_ROOT / "prompts/triage.md").read_text().strip()
+                        .replace("{DIFF}", "git diff origin/{base}...HEAD")
+                        .replace("{DESCRIPTION}", "the PR's body (`gh pr view <n> --json body -q .body`)")
+                        .replace("{SPEC}", "the step's spec, committed on this branch (none for an issue "
+                                           "or an adopted PR)"))
     values = {
         "worker": name, "repo": str(repo), "plugin_root": str(PLUGIN_ROOT),
         "profile": str(repo / ".claude/factory.md"),
