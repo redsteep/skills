@@ -21,6 +21,12 @@ grep -qE '(^|[;&|(])[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]
 grep -qoE 'https://[^/[:space:]"]+/[^[:space:]"]+/pull/[0-9]+' <<<"$payload" || exit 0
 # A draft PR is not up for review yet (unattended runs tend to open drafts).
 grep -qE '(^|[[:space:]])--draft([[:space:]]|$)' <<<"$cmd" && exit 0
+# Inside a factory worker, review mode is the worker's own move: its triage runs
+# `review-mode.sh on <worktree>` when it sends the PR to review. Turning it on here instead would
+# deny the worker the edits its own later phases need and hand it the queueing protocol on top of
+# its own auto-merge — and since the factory's PR opens with the code (no draft for a spec), this
+# hook would fire on every step.
+[[ -n "${FACTORY_WORKER:-}" ]] && exit 0
 
 # Which worktree: the last `cd <path>` the command used (plain, chained or in a
 # subshell), else the tool's cwd, else let review-mode.sh decide (it refuses

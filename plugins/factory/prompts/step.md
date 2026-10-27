@@ -14,7 +14,8 @@ read what was decided. Repo rules: {rules}. Profile: `{profile}`.
 - The developer is not watching. Whenever you need them, run `{ping} "<one line: what you need>"`
   and **end your turn**. Never poll or sleep waiting for them. One ping per reason; the command
   drops repeats itself.
-- You never merge, except through the auto-merge path in *Triage*. You never push to `{base}`.
+- You never merge, except through the auto-merge path in *Triage*, with the command the profile
+  declares. You never push to `{base}`, and never force-push.
 - Nothing goes to anyone but the developer (Slack, Trello comments, card moves) without their
   explicit yes in this conversation — except the two Trello writes the handoff's step mode makes
   on its own (the PR link, checking your item).
@@ -49,16 +50,23 @@ you already handled is ignored.
    what gets built goes under *Open questions* — never guess a product decision.
 3. Run the `design-review` skill (proposal mode) on it. Apply findings that are plainly right;
    any that need the developer join the open questions.
-4. Commit the spec, push, and open the step's PR as a **draft holding the spec only**:
-   `REVIEWED=1 gh pr create --draft --label factory --title "<card> — step {step_n}/{step_total}: <step>" --body "…"`
-   (card link, step, the Delta in brief, the open questions numbered). `REVIEWED=1` is right here:
-   nothing is built yet; pre-pr-review runs before the PR leaves draft.
-5. `{ping} "step {step_n} spec ready — N open questions — PR #<n>"`, end your turn.
+4. Commit the spec and push the branch. **No PR for a spec**: a spec is a design to read, not a
+   change to review, and the dispatcher already reads your branch as the step being under way.
+   The PR opens once, at *Build*, with the code in it.
+5. `{ping} "step {step_n} spec ready — N open questions — {specs_dir}/<file>"`, end your turn.
 
 Then talk it through with the developer here; amend the spec through a subagent and push. **Write
-no code until the developer approves** ("approved, go build it" or plainly the same). On approval,
-first `gh pr edit <n> --add-label factory:spec-approved`, then *Build*. Even with no open
-questions you wait for the approval.
+no code until the developer approves** ("approved, go build it" or plainly the same). Even with no
+open questions you wait for the approval. On approval, record it **on the branch** before anything
+else — a replacement worker has nothing else to read:
+
+```
+git commit --allow-empty -m "spec approved
+
+Approved-by: <the developer>" && git push
+```
+
+Never `--amend`: a force-push is denied to you, and the spec commit is already pushed. Then *Build*.
 
 ## Adopted PR
 
@@ -106,7 +114,7 @@ no other worker exists yet, and the dispatcher sends you events for your PR only
   **merging** the branch below into it (`git merge origin/<lower branch>`, push) — never a rebase:
   these are someone else's branches, and a merge needs no force-push.
 - A PR that is the base of another open PR merges with a **merge commit**, by the developer: the
-  auto-merge gate refuses it, so it always takes the review path. Say so in the review ping
+  merge gate refuses it, so it always takes the review path. Say so in the review ping
   (`"PR #<n> ready for review — merge with a merge commit, #<m> is stacked on it"`). A squash
   would leave the PR above carrying commits main no longer has.
 - After the merge, nothing to do: the dispatcher deletes your branch at cleanup and GitHub
@@ -128,10 +136,10 @@ without a design decision. No spec, no checklist, no card — the issue is the w
 2. **Off limits** for an issue: {issue_off_limits}.
 3. *Build*, steps 1–2. pre-pr-review opens the PR at its step 7: add `--label factory` and write
    `Refs #<n>` in the body — never `Closes`/`Fixes`: the issue closes only after the beta check.
-4. **Triage: always try the auto-merge.** Add the `Triage:` paragraph and run
-   `gh pr merge --auto --squash <n>`. Your own judgement never sends an issue's PR to review —
-   only the gate hook does. If it denies, take the review path of *Triage* and put the hook's
-   rule in the ping: `"PR #<n> needs review — <rule>"`.
+4. **Triage: always try the auto-merge.** Add the `Triage:` paragraph and run the profile's
+   **Merge command**, then label as in *Triage*. Your own judgement never sends an issue's PR to
+   review — only the gate hook does. If it denies, take the review path of *Triage* and put the
+   hook's rule in the ping: `"PR #<n> needs review — <rule>"`.
 5. On `merged`: `{lock} acquire handoff`, run `{issue_handoff}` with `issue=<n>`, then
    `{lock} release handoff` (also when it fails). Deployed and green →
    `gh issue close <n> --comment "Shipped in #<pr>, deployed."` and end your turn; the dispatcher
@@ -144,9 +152,9 @@ without a design decision. No spec, no checklist, no card — the issue is the w
 
 1. Implement through subagents, test-first, in this worktree.
 2. Run `pre-pr-review` over the branch. Hold the migration lock around its migration round-trip:
-   `{lock} acquire migration` before, `{lock} release migration` after (also when it fails). At
-   its step 7 the PR already exists as the spec-only draft: take the skill's *existing spec-only
-   draft* path (update the body, `gh pr ready`).
+   `{lock} acquire migration` before, `{lock} release migration` after (also when it fails). At its
+   step 7 it opens the step's PR — pass `--label {label}`, or the dispatcher will not see the PR as
+   the factory's and your step will never reach *Handoff*. The spec rides in the same PR.
 3. *Triage*.
 
 ## Triage
@@ -155,9 +163,11 @@ without a design decision. No spec, no checklist, no card — the issue is the w
 
 Then act on your verdict:
 
-- **Auto-merge:** add your `Triage:` paragraph to the PR body and run exactly
-  `gh pr merge --auto --squash <n>` as a command of its own. If the hook denies, the reason names
-  the rule — take the review path and say so in the PR. If it passes, wait for `merged`.
+- **Auto-merge:** add your `Triage:` paragraph to the PR body and run exactly the merge command
+  the profile declares (`## Auto-merge` → **Merge command**), as a command of its own. A hook
+  checks it, the project's excluded paths and the profile's `Precondition`; if it denies, the
+  reason names the rule — take the review path and say so in the PR. When the command returns,
+  `gh pr edit <n> --add-label factory:auto-merged`, then wait for `merged`.
 - **Review path:** `review-mode.sh on <worktree>`, `{ping} "PR #<n> ready for review"`, end your
   turn. The developer reviews here: review mode answers, queues their change requests, and applies
   the queue on their go-ahead — then re-run pre-pr-review (it updates the PR) and turn review mode

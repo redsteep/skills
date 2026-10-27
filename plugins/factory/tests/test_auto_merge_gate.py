@@ -9,7 +9,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from auto_merge_gate import Diff, Gate, failed_rule, judge  # noqa: E402
 
-GATE = Gate(max_lines=30, max_files=3, excluded=("db/migrations/", "*.lock", "src/generated/api.ts"))
+EXCLUDED = ("db/migrations/", "*.lock", "src/generated/api.ts")
+GATE = Gate(required_args=("--auto", "--squash"), precondition="", excluded=EXCLUDED)
 TRIAGE = "Summary\n\nTriage: copy change in one template, nothing open from review."
 
 
@@ -17,21 +18,17 @@ def diff(additions=10, deletions=0, files=("docs/a.md",), labels=("factory",), b
     return Diff(additions, deletions, tuple(files), tuple(labels), body, tuple(stacked))
 
 
-def verdict(command, d=None):
-    return judge(command, lambda _number: d or diff(), GATE)
+def verdict(command, d=None, gate=GATE):
+    return judge(command, lambda _number: d or diff(), gate)
 
 
 class GateRules(unittest.TestCase):
     def test_tiny_factory_pr_passes(self):
         self.assertIsNone(failed_rule(diff(), GATE))
 
-    def test_lines_boundary(self):
-        self.assertIsNone(failed_rule(diff(additions=20, deletions=10), GATE))
-        self.assertEqual(failed_rule(diff(additions=21, deletions=10), GATE), "31 changed lines > 30")
-
-    def test_files_boundary(self):
-        self.assertIsNone(failed_rule(diff(files=("a", "b", "c")), GATE))
-        self.assertEqual(failed_rule(diff(files=("a", "b", "c", "d")), GATE), "4 files > 3")
+    def test_size_is_not_a_rule(self):
+        """Reversibility, not size, decides — the project's Precondition says so, not a line count."""
+        self.assertIsNone(failed_rule(diff(additions=900, deletions=400, files=tuple("abcdefgh")), GATE))
 
     def test_each_excluded_path_is_refused(self):
         for path, pattern in [("db/migrations/0042_add_x.py", "db/migrations/"),
@@ -62,9 +59,9 @@ class MergeRoutes(unittest.TestCase):
                          ("allow", "auto-merge gate passed for PR #412"))
 
     def test_failing_gate_is_denied_with_the_rule(self):
-        decision, reason = verdict("gh pr merge --auto --squash 412", diff(additions=31))
+        decision, reason = verdict("gh pr merge --auto --squash 412", diff(files=("app/poetry.lock",)))
         self.assertEqual(decision, "deny")
-        self.assertIn("31 changed lines > 30", reason)
+        self.assertIn("matches excluded `*.lock`", reason)
 
     def test_other_merge_forms_are_denied_even_for_a_tiny_pr(self):
         for command in ["gh pr merge 412", "gh pr merge --squash 412", "gh pr merge --auto --merge 412",
@@ -76,6 +73,16 @@ class MergeRoutes(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertEqual(verdict(command)[0], "deny")
 
+    def test_the_profiles_command_is_the_allowed_one(self):
+        """A project whose repo has auto-merge disabled declares a synchronous merge instead, and
+        then the plugin's own default is the denied form."""
+        gate = Gate(required_args=("--squash", "--match-head-commit"), precondition="", excluded=EXCLUDED)
+        self.assertEqual(verdict("gh pr merge --squash --match-head-commit abc123 412", gate=gate),
+                         ("allow", "auto-merge gate passed for PR #412"))
+        decision, reason = verdict("gh pr merge --auto --squash 412", gate=gate)
+        self.assertEqual(decision, "deny")
+        self.assertIn("gh pr merge --squash --match-head-commit <number>", reason)
+
     def test_unrelated_commands_get_no_opinion(self):
         for command in ["gh pr view 412", "gh api repos/o/r/pulls/412/comments", "git push origin feature/factory-a-s1"]:
             with self.subTest(command=command):
@@ -84,3 +91,30 @@ class MergeRoutes(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Precondition(unittest.TestCase):
+    """The project's own "safe to merge right now", in its own words."""
+
+    def gate(self, precondition):
+        return Gate(required_args=("--auto", "--squash"), precondition=precondition, excluded=EXCLUDED)
+
+    def test_zero_exit_allows(self):
+        self.assertEqual(verdict("gh pr merge --auto --squash 412", gate=self.gate("exit 0")),
+                         ("allow", "auto-merge gate passed for PR #412"))
+
+    def test_non_zero_exit_denies_with_what_it_said(self):
+        decision, reason = verdict("gh pr merge --auto --squash 412",
+                                   gate=self.gate("echo 'main deploy is red'; exit 1"))
+        self.assertEqual(decision, "deny")
+        self.assertIn("main deploy is red", reason)
+
+    def test_silent_failure_still_denies(self):
+        decision, reason = verdict("gh pr merge --auto --squash 412", gate=self.gate("exit 3"))
+        self.assertEqual(decision, "deny")
+        self.assertIn("exited 3", reason)
+
+    def test_the_pr_number_reaches_it(self):
+        gate = self.gate("test '<number>' = 412")
+        self.assertEqual(verdict("gh pr merge --auto --squash 412", gate=gate)[0], "allow")
+        self.assertEqual(verdict("gh pr merge --auto --squash 777", gate=gate)[0], "deny")

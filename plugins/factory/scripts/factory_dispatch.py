@@ -88,9 +88,9 @@ class World:
     branches: frozenset[str]         # local branches
     workers: dict                    # worker name → {"status": "idle"|"busy"|"restarting"|"dead", ...}
     sent: frozenset[str]             # event keys already delivered
-    wip: int = 3
+    wip: int = 3                     # steps of cards in flight; the developer's review is the bound
     label: str = "factory"           # the GitHub label that makes a PR the factory's
-    issue_wip: int = 1               # of the wip slots, at most this many held by issues
+    issue_wip: int = 1               # issues in flight: its own pool, not carved out of wip
     issue_daily: int | None = None   # issues started in any 24 hours; None = no cap
     now: datetime | None = None      # the dispatch's clock, for issue_daily
 
@@ -271,26 +271,29 @@ def decide(world: World) -> list:
                         if key not in world.sent:
                             actions.append(SendEvent(step.worker, key, f"Factory event: {text}"))
 
-    # 4. Free slots go to eligible steps: cards before issues; within each, those already under
-    # way first, then board (issue-number) order. Issues never hold more than issue_wip slots,
-    # and no more than issue_daily of them start in any 24 hours.
+    # 4. Free slots go to eligible steps, those already under way first, then board (issue-number)
+    # order. Cards and issues draw on **separate** pools -- wip for cards, issue_wip for issues --
+    # because the two queue behind different people: a card's PR waits for the developer's review,
+    # an issue's merges itself. Sharing one pool meant three cards waiting on a review stalled
+    # every autofix behind them. No more than issue_daily issues start in any 24 hours.
     def holding(cards) -> int:
         return sum(1 for c in cards for s in all_steps.get(c.short, []) if s.state in HOLDS_SLOT)
-    held = holding(world.cards)
+    cards_held = holding(c for c in world.cards if c.issue is None)
     issues_held = holding(c for c in world.cards if c.issue is not None)
     issues_today = _issues_started_since(world, all_steps, world.now - timedelta(days=1)) if world.now else 0
     def started(card: Card) -> bool:
         return any(s.state != PENDING for s in all_steps.get(card.short, []))
-    for card in sorted((c for c in world.cards if c.ready), key=lambda c: (c.issue is not None, not started(c))):
-        if held >= world.wip:
-            break
-        if card.issue is not None and (issues_held >= world.issue_wip or
-                                       (world.issue_daily is not None and issues_today >= world.issue_daily)):
+    for card in sorted((c for c in world.cards if c.ready), key=lambda c: not started(c)):
+        if card.issue is None:
+            if cards_held >= world.wip:
+                continue
+        elif issues_held >= world.issue_wip or (world.issue_daily is not None
+                                                and issues_today >= world.issue_daily):
             continue
         eligible = _eligible_step(all_steps.get(card.short, []))
         if eligible is not None:
             actions.append(StartStep(eligible))
-            held += 1
+            cards_held += card.issue is None
             issues_held += card.issue is not None
             issues_today += card.issue is not None
 

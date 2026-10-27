@@ -146,8 +146,13 @@ class Issues(unittest.TestCase):
     def test_open_issue_starts_as_a_one_step_job(self):
         self.assertEqual(started(decide(world([issue(7)]))), [("i7", 1, None)])
 
-    def test_card_takes_the_last_free_slot_before_an_issue(self):
-        w = world([issue(7), card("a", [todo()])], wip=1)
+    def test_issue_has_its_own_slot_when_the_card_pool_is_full(self):
+        w = world([card("a", [todo()]), issue(7)], wip=1)
+        self.assertEqual(started(decide(w)), [("a", 1, None), ("i7", 1, None)])
+
+    def test_a_busy_issue_does_not_eat_a_cards_slot(self):
+        w = world([card("a", [todo()]), issue(7)], branches=["feature/factory-i7-s1"],
+                  workers={"factory-i7-s1": "busy"}, wip=1)
         self.assertEqual(started(decide(w)), [("a", 1, None)])
 
     def test_issue_takes_a_slot_no_card_step_can_use(self):

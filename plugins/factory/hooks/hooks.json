@@ -1,5 +1,5 @@
 {
-  "description": "Factory: inside a factory worker, the only merge is `gh pr merge --auto --squash` on a PR that passes the profile's auto-merge gate",
+  "description": "Factory: inside a factory worker, the only merge is the command the profile declares, on a PR that passes the profile's auto-merge gate and its Precondition",
   "hooks": {
     "PreToolUse": [
       {
@@ -8,7 +8,7 @@
           {
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/auto_merge_gate.py\"",
-            "timeout": 30
+            "timeout": 120
           }
         ]
       }
