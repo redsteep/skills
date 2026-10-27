@@ -23,6 +23,7 @@ import time
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -53,6 +54,7 @@ class PR:
     conflicting: bool
     url: str = ""
     labels: tuple[str, ...] = ()
+    created: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -88,6 +90,8 @@ class World:
     wip: int = 3
     label: str = "factory"           # the GitHub label that makes a PR the factory's
     issue_wip: int = 1               # of the wip slots, at most this many held by issues
+    issue_daily: int | None = None   # issues started in any 24 hours; None = no cap
+    now: datetime | None = None      # the dispatch's clock, for issue_daily
 
 
 @dataclass(frozen=True)
@@ -262,23 +266,27 @@ def decide(world: World) -> list:
                             actions.append(SendEvent(step.worker, key, f"Factory event: {text}"))
 
     # 4. Free slots go to eligible steps: cards before issues; within each, those already under
-    # way first, then board (issue-number) order. Issues never hold more than issue_wip slots.
+    # way first, then board (issue-number) order. Issues never hold more than issue_wip slots,
+    # and no more than issue_daily of them start in any 24 hours.
     def holding(cards) -> int:
         return sum(1 for c in cards for s in all_steps.get(c.short, []) if s.state in HOLDS_SLOT)
     held = holding(world.cards)
     issues_held = holding(c for c in world.cards if c.issue is not None)
+    issues_today = _issues_started_since(world, all_steps, world.now - timedelta(days=1)) if world.now else 0
     def started(card: Card) -> bool:
         return any(s.state != PENDING for s in all_steps.get(card.short, []))
     for card in sorted((c for c in world.cards if c.ready), key=lambda c: (c.issue is not None, not started(c))):
         if held >= world.wip:
             break
-        if card.issue is not None and issues_held >= world.issue_wip:
+        if card.issue is not None and (issues_held >= world.issue_wip or
+                                       (world.issue_daily is not None and issues_today >= world.issue_daily)):
             continue
         eligible = _eligible_step(all_steps.get(card.short, []))
         if eligible is not None:
             actions.append(StartStep(eligible))
             held += 1
             issues_held += card.issue is not None
+            issues_today += card.issue is not None
 
     # 5. Done steps and stopped cards are cleaned up; the dispatcher is the only cleanup owner.
     for name, info in world.workers.items():
@@ -300,6 +308,22 @@ def decide(world: World) -> list:
             if s.state == DONE and s.branch in world.branches and s.worker not in world.workers:
                 actions.append(Cleanup(None, s.branch, s.fix_prefix))
     return actions
+
+
+def _issues_started_since(world: World, all_steps: dict, since: datetime) -> int:
+    """Issue steps started since `since`: a PR opened since then, or a branch with no PR yet. A
+    PR's creation stands in for the start, so the count needs no state of the dispatcher's own."""
+    count = 0
+    for card in world.cards:
+        if card.issue is None:
+            continue
+        for step in all_steps.get(card.short, []):
+            pr, _ = step_prs(world.prs, step.branch)
+            if pr is None:
+                count += step.state == IN_PROGRESS
+            elif pr.created is not None and pr.created >= since:
+                count += 1
+    return count
 
 
 def _eligible_step(steps: list[Step]) -> Step | None:
@@ -366,13 +390,14 @@ def _ci(rollup: list[dict]) -> str | None:
     return "passed"
 
 
-_PR_FIELDS = "number,state,headRefName,headRefOid,statusCheckRollup,mergeable,url,labels"
+_PR_FIELDS = "number,state,headRefName,headRefOid,statusCheckRollup,mergeable,url,labels,createdAt"
 
 
 def _pr(p: dict) -> PR:
     return PR(p["number"], p["state"], p["headRefName"], p["headRefOid"],
               _ci(p.get("statusCheckRollup") or []), p.get("mergeable") == "CONFLICTING", p["url"],
-              tuple(l["name"] for l in p.get("labels") or []))
+              tuple(l["name"] for l in p.get("labels") or []),
+              datetime.fromisoformat(p["createdAt"].replace("Z", "+00:00")) if p.get("createdAt") else None)
 
 
 def load_prs(repo: Path, label: str, adopted: set[int]) -> tuple[PR, ...]:
@@ -600,6 +625,8 @@ def main() -> int:
         wip=int(profile.get("Settings", "WIP", "3")),
         label=label,
         issue_wip=int(profile.get("Issues", "WIP", "1")),
+        issue_daily=int(daily) if (daily := profile.get("Issues", "Per day")) else None,
+        now=datetime.now(timezone.utc),
     )
     execute = Executor(repo, profile, dry_run=args.dry_run)
     failures = 0

@@ -24,8 +24,9 @@ worker waits for your OK before anything else runs.
 **GitHub issues, too** (optional, profile `## Issues`). An open issue with the profile's label is
 a one-step job: no split, no spec, straight to the build. Cards get free slots first, and issues
 hold at most `WIP` of them (default one). Its PR always tries the auto-merge — you review it only
-when the gate hook refuses. After the merge the profile's issue handoff checks the deploy, and
-the worker closes the issue. Label only issues that need no design decision; a worker that hits
+when the gate hook refuses. A merged issue frees its slot, so while the gate lets PRs through
+the next issue follows; `Per day` caps how many start in any 24 hours.
+After the merge the profile's issue handoff checks the deploy, and the worker closes the issue. Label only issues that need no design decision; a worker that hits
 one pings you.
 
 In the Claude app a worker shows by what it works on — `factory · <card> · 1/2`,

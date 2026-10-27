@@ -54,6 +54,7 @@ for an issue's worker.
 
 - **Label:** `<label>` — an open issue with it is taken; label only issues that need no design decision
 - **WIP:** `1` — of the WIP slots, at most this many held by issues; cards get free slots first
+- **Per day:** `3` — at most this many issues started in any 24 hours; leave it out for no cap
 - **Handoff:** `<skill name>` — run after the merge with `issue=<n>`: the deploy check only (README)
 - **Off limits:** <what an issue's worker must not touch, as you'd say it in a prompt>
 

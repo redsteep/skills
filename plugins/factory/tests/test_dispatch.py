@@ -3,6 +3,7 @@ Run: python3 -m unittest discover -s plugins/factory/tests"""
 
 import sys
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
@@ -32,10 +33,13 @@ def pr(number, head, state="OPEN", ci=None, conflicting=False, sha="abc"):
     return PR(number, state, head, sha, ci, conflicting, f"https://github.com/o/r/pull/{number}")
 
 
-def world(cards, prs=(), branches=(), workers=None, sent=(), wip=3, issue_wip=1):
+NOW = datetime(2026, 10, 27, 12, 0, tzinfo=timezone.utc)
+
+
+def world(cards, prs=(), branches=(), workers=None, sent=(), wip=3, issue_wip=1, issue_daily=None):
     return World(tuple(cards), tuple(prs), frozenset(branches),
                  {name: {"status": status} for name, status in (workers or {}).items()},
-                 frozenset(sent), wip, issue_wip=issue_wip)
+                 frozenset(sent), wip, issue_wip=issue_wip, issue_daily=issue_daily, now=NOW)
 
 
 def issue(number, open_=True):
@@ -160,6 +164,25 @@ class Issues(unittest.TestCase):
         w = world([issue(7), issue(8)], branches=["feature/factory-i7-s1"], workers={"factory-i7-s1": "busy"},
                   issue_wip=2)
         self.assertEqual(started(decide(w)), [("i8", 1, None)])
+
+    def test_daily_cap_counts_issue_prs_opened_in_the_last_24_hours(self):
+        def merged(number, hours_ago):
+            p = pr(number, f"feature/factory-i{number}-s1", "MERGED")
+            return PR(p.number, p.state, p.head, p.head_sha, p.ci, p.conflicting, p.url,
+                      created=NOW - timedelta(hours=hours_ago))
+        for cap, prs, expected in [
+            (3, [merged(1, 1), merged(2, 2)], [("i9", 1, None)]),            # 2 today: under the cap
+            (3, [merged(1, 1), merged(2, 2), merged(3, 24)], []),            # exactly 24 h ago still counts
+            (3, [merged(1, 1), merged(2, 2), merged(3, 24.01)], [("i9", 1, None)]),  # just past: dropped out
+        ]:
+            with self.subTest(prs=[p.created for p in prs]):
+                w = world([issue(n, open_=False) for n in (1, 2, 3)] + [issue(9)], prs=prs, issue_daily=cap)
+                self.assertEqual(started(decide(w)), expected)
+
+    def test_daily_cap_counts_a_started_issue_without_its_pr_yet(self):
+        w = world([issue(7), issue(8)], branches=["feature/factory-i7-s1"], workers={"factory-i7-s1": "busy"},
+                  issue_wip=2, issue_daily=1)
+        self.assertEqual(started(decide(w)), [])
 
     def test_closed_issue_is_cleaned_up(self):
         w = world([issue(7, open_=False)], branches=["feature/factory-i7-s1"], workers={"factory-i7-s1": "idle"})
