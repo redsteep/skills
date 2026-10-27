@@ -2,9 +2,9 @@
 
 Run by `tools/agent-eval/run.py`. A case is a merged PR replayed as it was when it was opened: the
 worktree at its first pushed head (`before`), `base` the commit it forked from, `description` its
-body as first written, `truth` what the triage should have said — `auto-merge` when it merged
-without fixes, `review` when the code changed after it opened, or when a wrong merge would cost too
-much to risk. The verdict is a line, so the adapter grades it itself; no judge.
+body as first written (title as its heading), `expected` what the triage should have said —
+`auto-merge` when it merged without fixes, `review` when the code changed after it opened, or when
+a wrong merge would cost too much to risk. The verdict is a line, so the adapter grades it itself; no judge.
 
 The two errors are not alike: a false auto-merge ships what review would have changed, a needless
 review costs the developer a read. The results line keeps them apart.
@@ -23,7 +23,7 @@ _VERDICT = re.compile(r"^\s*\**Verdict:\**\s*\**(auto-merge|review)\**\s*$", re.
 def inputs(case: dict, worktree: Path, config: dict) -> dict[str, str]:
     return {
         "DIFF": f"git diff {case['base']}...HEAD",
-        "DESCRIPTION": f"\n\n<description>\n# {case['title']}\n\n{case['description'].strip()}\n</description>\n",
+        "DESCRIPTION": f"\n\n<description>\n{case['description'].strip()}\n</description>\n",
         "SPEC": case.get("spec") or "none",
     }
 
@@ -46,8 +46,9 @@ def verdict_of(text: str) -> str | None:
 def grade(case: dict, artifacts: dict) -> list[dict]:
     said = verdict_of(artifacts["final_text"])
     if said is None:
-        return [{"verdict": "NEITHER", "said": None, "truth": case["truth"]}]
-    return [{"verdict": "RIGHT" if said == case["truth"] else "WRONG", "said": said, "truth": case["truth"]}]
+        return [{"verdict": "NEITHER", "said": None, "expected": case["expected"]}]
+    return [{"verdict": "RIGHT" if said == case["expected"] else "WRONG", "said": said,
+             "expected": case["expected"]}]
 
 
 def summarise(case: dict, results: list[dict]) -> str:
