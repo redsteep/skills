@@ -17,7 +17,8 @@ relax the gate by editing the profile.
 
 **Cards that already have PRs.** The split worker turns each open PR linked on the card into a
 step named `#<n> …`, and the factory adopts it instead of building it: no spec phase, the PR's own
-branch. A stack merges bottom-up with merge commits (the gate refuses to auto-merge a PR
+branch — in the worktree it is already checked out in, if any, when that holds nothing unsaved;
+with uncommitted or unpushed work there the step waits and you get a ping. A stack merges bottom-up with merge commits (the gate refuses to auto-merge a PR
 another one is based on), and deleting a merged branch lets GitHub repoint the PR above. An adopted PR written by someone other than
 you starts with an **architecture gate**: pre-pr-review's architecture reviewer alone, then the
 worker waits for your OK before anything else runs.

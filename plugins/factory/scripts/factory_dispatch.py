@@ -458,6 +458,24 @@ def load_branches(repo: Path) -> frozenset[str]:
     return frozenset(out.split())
 
 
+def checked_out_at(porcelain: str, branch: str) -> Path | None:
+    """Where `git worktree list --porcelain` shows `branch` checked out, if anywhere. Asked, not
+    guessed from the branch name: an adopted PR's branch may sit in a worktree the developer named."""
+    path = None
+    for line in porcelain.splitlines():
+        if line.startswith("worktree "):
+            path = Path(line[len("worktree "):])
+        elif line == f"branch refs/heads/{branch}":
+            return path
+    return None
+
+
+def uncommitted(status: str) -> list[str]:
+    """`git status --porcelain` lines that are someone's work. A file turned into a symlink (a
+    worktree setup linking shared env files) is setup, not work."""
+    return [l for l in status.splitlines() if l.strip() and "T" not in l[:2]]
+
+
 # --- carrying out actions -------------------------------------------------------------------------
 @dataclass
 class Executor:
@@ -494,11 +512,13 @@ class Executor:
             # An adopted PR: its own branch, and the label that makes it count as a slot.
             if not s.head or "/" not in s.head:
                 raise RuntimeError(f"PR #{s.pr_number}: branch {s.head!r} has no slash — check it out by hand")
+            worktree = self._existing_worktree(s.head)
+            if worktree is None:
+                worktree = self._worktrees / s.head.rsplit("/", 1)[1]
+                if not worktree.exists():
+                    run([create, s.head], cwd=self.repo, timeout=1800)
             run(["gh", "pr", "edit", str(s.pr_number), "--add-label", self.profile.get("GitHub", "Label", "factory")],
                 cwd=self.repo)
-            worktree = self._worktrees / s.head.rsplit("/", 1)[1]
-            if not worktree.exists():
-                run([create, s.head], cwd=self.repo, timeout=1800)
         else:
             worktree = self._worktrees / s.worker
             if not worktree.exists():
@@ -510,6 +530,32 @@ class Executor:
         total = len(s.card.items or ())
         self._launch(s.worker, worktree, "recovery.md" if a.recovered else "step.md", card=s.card,
                      step=s, total=total, recovered=a.recovered or "", title=display_name(s.card, s, total))
+
+    def ping_failed_start(self, action, exc: Exception) -> None:
+        """A start that fails is retried every dispatch; the developer hears of it once per reason
+        (factory-ping drops repeats), not only in the journal."""
+        name = action.step.worker if isinstance(action, StartStep) else split_name(action.card.short)
+        reason = f"can't start: {(str(exc).splitlines() or [type(exc).__name__])[0][:300]}"
+        run([str(PLUGIN_ROOT / "scripts/factory-ping"), "--worker", name, reason], check=False,
+            env={"FACTORY_REPO": str(self.repo)})
+
+    def _existing_worktree(self, branch: str) -> Path | None:
+        """The worktree `branch` is already checked out in, taken over as it is — its installs
+        are the slow part of a launch. Refused while it holds work of its own (uncommitted, or
+        commits its remote lacks): that is the developer's to save or drop, not a worker's."""
+        found = checked_out_at(run(["git", "worktree", "list", "--porcelain"], cwd=self.repo), branch)
+        if found is None:
+            return None
+        if found.resolve() == self.repo.resolve():
+            raise RuntimeError(f"{branch} is checked out in the main checkout — switch it to another branch")
+        run(["git", "fetch", "origin", branch], cwd=self.repo)
+        work = uncommitted(run(["git", "status", "--porcelain"], cwd=found))
+        ahead = run(["git", "rev-list", "--count", f"origin/{branch}..HEAD"], cwd=found).strip()
+        if work or ahead != "0":
+            what = f"{len(work)} uncommitted change(s)" if work else f"{ahead} unpushed commit(s)"
+            raise RuntimeError(f"{branch} is checked out in {found} with {what} — "
+                               "commit and push it, or remove that worktree")
+        return found
 
     def _SendEvent(self, a: SendEvent) -> None:
         prompt = (f"Use ListAgents to find the session named {a.worker}, then use SendMessage to send it "
@@ -532,7 +578,10 @@ class Executor:
                     run(["claude", "stop", agent["id"]], check=False)
                     run(["claude", "rm", agent["id"]], check=False)
         if a.branch:
-            worktree = self._worktrees / a.branch.rsplit("/", 1)[-1]
+            found = checked_out_at(run(["git", "worktree", "list", "--porcelain"], cwd=self.repo), a.branch)
+            if found is not None and found.resolve() == self.repo.resolve():
+                return  # never the main checkout
+            worktree = found or self._worktrees / a.branch.rsplit("/", 1)[-1]
             run([str(PLUGIN_ROOT / "scripts/remove-step-worktree.sh"), str(self.repo), str(worktree),
                  a.branch, a.fixes or ""], check=False, timeout=600,
                 env={"FACTORY_CLEANUP": self.profile.code_block("Cleanup") or ""})
@@ -699,6 +748,8 @@ def main() -> int:
         except Exception as exc:  # one failed action must not stop the rest of the dispatch
             failures += 1
             print(f"factory: {action!r} failed: {exc}", file=sys.stderr)
+            if isinstance(action, (StartStep, StartSplit)):
+                execute.ping_failed_start(action, exc)
     for line in execute.log:
         print(("would: " if args.dry_run else "did: ") + line)
     return 1 if failures else 0

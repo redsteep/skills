@@ -1,7 +1,9 @@
 """The dispatcher's decision table: every rule and boundary of the spec's Tests section.
 Run: python3 -m unittest discover -s plugins/factory/tests"""
 
+import subprocess
 import sys
+import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -10,8 +12,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from factory_dispatch import (  # noqa: E402
     DONE, DROPPED_STATE, FIXING, IN_PROGRESS, MERGED, PENDING, PR, Card, Cleanup, Item,
-    MarkSent, SendEvent, StartSplit, StartStep, World, decide, derive_step_state, deny_list, display_name,
-    issue_card,
+    Executor, MarkSent, SendEvent, StartSplit, StartStep, World, checked_out_at, decide, derive_step_state,
+    deny_list, display_name, issue_card, uncommitted,
 )
 from factory_common import Profile  # noqa: E402
 
@@ -466,6 +468,59 @@ class DeadAndRestartingWorkers(unittest.TestCase):
     def test_restarting_worker_of_a_done_step_is_not_cleaned(self):
         w = world([card("a", [done()])], branches=["feature/factory-a-s1"], workers={"factory-a-s1": "restarting"})
         self.assertEqual([a for a in decide(w) if isinstance(a, Cleanup)], [])
+
+
+class ExistingWorktree(unittest.TestCase):
+    """An adopted PR's branch may already be checked out in a worktree the developer named: the
+    step takes it over when it holds nothing unsaved, and refuses otherwise."""
+
+    PORCELAIN = ("worktree /r\nHEAD 1\nbranch refs/heads/main\n\n"
+                 "worktree /r/.worktrees/mine\nHEAD 2\nbranch refs/heads/feat/orders\n")
+
+    def test_finds_the_worktree_by_branch_not_by_name(self):
+        self.assertEqual(checked_out_at(self.PORCELAIN, "feat/orders"), Path("/r/.worktrees/mine"))
+
+    def test_a_branch_checked_out_nowhere_has_no_worktree(self):
+        self.assertIsNone(checked_out_at(self.PORCELAIN, "feat/order"))
+
+    def test_a_file_turned_symlink_is_setup_not_work(self):
+        self.assertEqual(uncommitted(" T dev.env\n M src/a.py\n?? notes.md\n"), [" M src/a.py", "?? notes.md"])
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        def git(*args, cwd=None):
+            return subprocess.run(["git", *args], cwd=cwd or self.repo, check=True, capture_output=True, text=True)
+        self.git = git
+        git("init", "-q", "--bare", str(self.tmp / "origin.git"), cwd=self.tmp)
+        self.repo = self.tmp / "repo"
+        git("init", "-q", "-b", "main", str(self.repo), cwd=self.tmp)
+        git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init")
+        git("remote", "add", "origin", str(self.tmp / "origin.git"))
+        git("push", "-q", "origin", "main", "main:feat/orders")
+        self.mine = self.repo / ".worktrees/mine"
+        git("worktree", "add", "-q", str(self.mine), "-b", "feat/orders", "origin/feat/orders")
+        self.executor = Executor(self.repo, Profile(""))
+
+    def tearDown(self):
+        subprocess.run(["rm", "-rf", str(self.tmp)], check=True)
+
+    def test_a_clean_worktree_in_sync_is_taken_over(self):
+        self.assertEqual(self.executor._existing_worktree("feat/orders"), self.mine)
+
+    def test_uncommitted_work_is_refused(self):
+        (self.mine / "wip.py").write_text("x")
+        with self.assertRaisesRegex(RuntimeError, "1 uncommitted change"):
+            self.executor._existing_worktree("feat/orders")
+
+    def test_an_unpushed_commit_is_refused(self):
+        self.git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "local",
+                 cwd=self.mine)
+        with self.assertRaisesRegex(RuntimeError, "1 unpushed commit"):
+            self.executor._existing_worktree("feat/orders")
+
+    def test_the_main_checkout_is_never_taken(self):
+        with self.assertRaisesRegex(RuntimeError, "main checkout"):
+            self.executor._existing_worktree("main")
 
 
 if __name__ == "__main__":
