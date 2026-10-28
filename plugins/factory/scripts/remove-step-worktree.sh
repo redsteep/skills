@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Remove a finished factory step's worktree and its branches (local + remote), without
+# Remove a finished factory step's worktree, its branches (local + remote) and its review-mode state, without
 # prompting. Called by the dispatcher only — it is the one cleanup owner.
 #
 #   remove-step-worktree.sh <repo> <worktree> <branch> [<fix-prefix>]
@@ -48,5 +48,13 @@ if [[ -n "$FIXES" ]]; then
     delete_remote "$fix"
   done
 fi
+
+# The step's review ends with it. review-mode keeps its state per branch in the git common dir
+# and counts a marker as stale only while its worktree is missing — so a marker left here would
+# come back to life, denying every edit, when a later step recreates the same worktree.
+REVIEW="$(git -C "$REPO" rev-parse --path-format=absolute --git-common-dir)/review-mode"
+rm -rf -- "${REVIEW:?}/${BRANCH//\//__}"
+[[ -n "$FIXES" ]] && rm -rf -- "${REVIEW:?}/${FIXES//\//__}"*
+
 git -C "$REPO" worktree prune
 exit 0
