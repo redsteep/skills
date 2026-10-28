@@ -151,8 +151,13 @@ build only step {step_n} — the dispatcher starts the next step's worker once y
 
 1. Read it (`gh issue view <n> --comments`) and the code it names. If it does need a decision
    after all — a new mechanism, options to choose between, an API contract change, a schema
-   change the issue doesn't spell out, anything visible in the UI — run
-   `{ping} "issue #<n> needs a decision: <question>"` and end your turn; the developer answers here.
+   change the issue doesn't spell out, anything visible in the UI — **hand it back and move on**:
+   `gh issue edit <n> --add-label "{issue_decision_label}"`, comment the one decision it needs in a
+   sentence, and end your turn. Do not ping and wait: the issue pool is small, and an issue waiting
+   on an answer would hold a slot while every other item queues behind it. The label is what stops
+   the factory offering it again; removing it is how the developer says the decision is made.
+   (With no **Needs decision** label in the profile, ping instead —
+   `{ping} "issue #<n> needs a decision: <question>"` — and wait.)
    If `origin/{base}` already does what the issue asks — another PR got there first — it is no
    decision: `gh issue close <n> --comment "Already done in #<pr>: <where it lives now>"` (any
    leftover difference, a name or a detail, goes in the comment) and end your turn; the dispatcher

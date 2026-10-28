@@ -52,7 +52,12 @@ Optional: GitHub issues as a second source of work — one step each, no spec ph
 tried first. Leave the section out to take Trello cards only. Bare bullets are extra deny rules
 for an issue's worker.
 
-- **Label:** `<label>` — an open issue with it is taken; label only issues that need no design decision
+- **Label:** `<label>` — an open issue with it is taken. It says what kind of work the issue is,
+  not that a human approved it for unattended work: a worker that finds a design decision in one
+  hands it back with the label below
+- **Needs decision:** `<label>` — an issue carrying it is not taken. A worker adds it, with a
+  comment saying which decision is needed; the developer removes it once the decision is made.
+  Leave the key out and a worker pings and waits instead, holding its slot until you answer
 - **WIP:** `1` — issues in flight: **its own pool**, not carved out of `Settings` → **WIP**. A
   card's PR waits for your review, an issue's merges itself, so sharing one pool let cards waiting
   on review stall every issue behind them

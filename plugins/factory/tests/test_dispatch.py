@@ -11,6 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from factory_dispatch import (  # noqa: E402
+    takes_issue,
     DONE, DROPPED_STATE, FIXING, IN_PROGRESS, MERGED, PENDING, PR, Card, Cleanup, Item,
     Executor, MarkSent, SendEvent, StartSplit, StartStep, World, checked_out_at, decide, derive_step_state,
     deny_list, display_name, issue_card, uncommitted,
@@ -560,3 +561,23 @@ class ExistingWorktree(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NeedsDecision(unittest.TestCase):
+    """A worker that finds a design decision in an issue hands it back by labelling it. Without
+    this the factory would offer the same issue every two minutes and the slot never moves."""
+
+    def issue(self, *labels):
+        return {"number": 7, "labels": [{"name": n} for n in labels]}
+
+    def test_an_issue_marked_as_needing_a_decision_is_not_taken(self):
+        self.assertFalse(takes_issue(self.issue("tech-debt", "autofix: no"), "autofix: no"))
+
+    def test_an_unmarked_issue_is_taken(self):
+        self.assertTrue(takes_issue(self.issue("tech-debt"), "autofix: no"))
+
+    def test_without_the_key_every_issue_is_taken(self):
+        self.assertTrue(takes_issue(self.issue("tech-debt", "autofix: no"), ""))
+
+    def test_no_labels_at_all_is_taken(self):
+        self.assertTrue(takes_issue({"number": 7}, "autofix: no"))
