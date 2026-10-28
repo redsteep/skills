@@ -102,9 +102,31 @@ from its code, not from a spec.
      `gh pr edit <each n> --add-label factory:arch-approved` and add `Architecture reviewed at
      <sha>` to each PR's body, then step 4.
    - **The developer** → step 4 directly.
-4. Run the full `pre-pr-review` (step 2 only over code changed since the architecture review, as
+4. **Cut it, when it is too big.** Merge `origin/{base}` in first (no rebase, no force-push), so
+   the diff holds only what is left. Then ask what *Issue* step 2 asks: is this one PR the
+   developer could read in one sitting? If it is — or its body already says `Cut by the factory`
+   or `Carved from #<n>` — go on to step 5. If not, cut it by the rules of *Issue* step 2: a
+   refactor with no behaviour change first and alone, a migration alone, a type change before the
+   cleanup it allows, then the feature by use case. This needs no sign-off — the architecture gate
+   already covered the code. Not while another PR is stacked on it: ping instead.
+   1. Each piece but the last becomes a new branch off `origin/{base}`, `<its branch>-<slug>`
+      (never `-fix…`), holding that piece of the change — its commits where they fall cleanly,
+      its files otherwise — and passing its tests alone. Build them through a subagent, push, and
+      open each as a PR: a title for what it does, the body `Carved from #<n> (by <author>) —
+      <which part of it this is>`, the label `factory:arch-approved`; the first piece also
+      `--label {label}`, the others not (the dispatcher labels each when its step starts).
+   2. Insert one `#<m> <what it does>` item per piece on the card's `Factory steps` checklist
+      **right before** your item, in merge order (Trello positions between the item before yours
+      and yours). You are now the first piece: step {step_n} is its PR.
+   3. The adopted PR keeps the last piece — its title, author and discussion stay where its
+      author expects them. Add `Cut by the factory: #<m>, #<k> go first.` to its body. Its own
+      step's worker merges `origin/{base}` in when its turn comes, so its diff shrinks then.
+   4. `git switch <the first piece's branch>` in this worktree, the adopted branch pushed and
+      clean — the dispatcher finds a step's worktree by the branch checked out in it.
+   Then step 5, for the first piece.
+5. Run the full `pre-pr-review` (step 2 only over code changed since the architecture review, as
    the skill says). The PR exists: update its body and keep it open — no `gh pr create`.
-5. *Triage*, then *Handoff* as for any step. Fix PRs for an adopted step use branches
+6. *Triage*, then *Handoff* as for any step. Fix PRs for an adopted step use branches
    `{fix_prefix}<M>`.
 
 **Stacks.** While your step runs, you own every adopted PR of the card stacked above yours —

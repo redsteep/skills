@@ -420,6 +420,41 @@ class Adoption(unittest.TestCase):
         self.assertIn(Cleanup("factory-a-s1", "feat/x", "feature/factory-a-s1-fix"), decide(w))
 
 
+class CarvedAdoptedPR(unittest.TestCase):
+    """A step worker that cuts its adopted PR inserts the pieces before it on the checklist: the
+    adopted PR, still labelled, sits behind them, and the worker's own step becomes the first piece."""
+
+    CARVED = [done("one"), todo("#20 refactor, no behaviour change"), todo("#21 the migration"),
+              todo("#12 count the orders")]
+
+    def test_the_labelled_adopted_pr_behind_the_pieces_gets_no_worker(self):
+        w = world([card("a", self.CARVED)],
+                  prs=[labelled(20, "feat/x-refactor"), labelled(21, "feat/x-migration", base_labels=()),
+                       labelled(12, "feat/x")],
+                  workers={"factory-a-s2": "busy"})
+        self.assertEqual(started(decide(w)), [])
+
+    def test_a_dead_worker_behind_an_unfinished_step_is_not_replaced(self):
+        w = world([card("a", self.CARVED)],
+                  prs=[labelled(20, "feat/x-refactor"), labelled(21, "feat/x-migration", base_labels=()),
+                       labelled(12, "feat/x")])
+        self.assertEqual(started(decide(w)), [("a", 2, IN_PROGRESS)])
+
+    def test_the_cutting_worker_gets_no_twin_before_its_piece_is_labelled(self):
+        w = world([card("a", self.CARVED)],
+                  prs=[labelled(20, "feat/x-refactor", base_labels=()),
+                       labelled(21, "feat/x-migration", base_labels=()), labelled(12, "feat/x")],
+                  workers={"factory-a-s2": "busy"})
+        self.assertEqual(started(decide(w)), [])
+
+    def test_the_adopted_pr_is_replaced_once_the_pieces_are_done(self):
+        items = [done("one"), done("#20 refactor"), done("#21 the migration"), todo("#12 count the orders")]
+        w = world([card("a", items)],
+                  prs=[labelled(20, "feat/x-refactor", "MERGED"), labelled(21, "feat/x-migration", "MERGED"),
+                       labelled(12, "feat/x")])
+        self.assertEqual(started(decide(w)), [("a", 4, IN_PROGRESS)])
+
+
 class CleanupRule(unittest.TestCase):
     def test_idle_worker_of_a_done_step_is_cleaned(self):
         w = world([card("a", [done()])], branches=["feature/factory-a-s1"], workers={"factory-a-s1": "idle"})

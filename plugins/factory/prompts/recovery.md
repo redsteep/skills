@@ -14,7 +14,9 @@ finished work and never restart a step that has a PR.
 - `in-progress`, an adopted PR → *Adopted PR*: without `factory:arch-approved` and not written by
   the developer, the card's architecture gate waits on them (re-run it over all the card's
   adopted PRs if the PR body has no `Architecture reviewed at` line, then ping); with the label,
-  its step 4.
+  its step 4. A cut stopped halfway shows as open PRs whose body says `Carved from #<n>`
+  (`gh pr list --search "Carved from #<n> in:body"`) but are not yet on the checklist, or not yet
+  named in the adopted PR's body: finish that cut, never cut again.
 - an issue's step, `in-progress`, no PR → *Issue*: no spec phase; step 1 splits first only if
   the issue body still has no `## Factory steps` section.
 - `merged` → *Handoff* only (an issue's: *Issue* step 6).

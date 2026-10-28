@@ -298,13 +298,18 @@ def decide(world: World) -> list:
     # an issue's merges itself. Sharing one pool meant three cards waiting on a review stalled
     # every autofix behind them. No more than issue_daily issue steps start in any 24 hours; a
     # replacement is no new start.
+    # Only a card's first unfinished step is ever started or replaced, and never while a worker
+    # of that name lives. A worker that cuts an adopted PR inserts the pieces before it on the
+    # checklist: the adopted PR, still labelled, then reads in-progress behind them, and the
+    # worker's own step reads pending until its piece is labelled.
     ready = [c for c in world.cards if c.ready]
-    under_way = [s for c in ready for s in all_steps.get(c.short, [])
-                 if s.state in HOLDS_SLOT and not _alive(world, s.worker)]
+    under_way = [s for c in ready if (s := _first_open(all_steps.get(c.short, []))) is not None
+                 and s.state in HOLDS_SLOT and not _alive(world, s.worker)]
     def started(card: Card) -> bool:
         return any(s.state != PENDING for s in all_steps.get(card.short, []))
     pending = [s for c in sorted(ready, key=lambda c: not started(c))
-               if (s := _eligible_step(all_steps.get(c.short, []))) is not None]
+               if (s := _eligible_step(all_steps.get(c.short, []))) is not None
+               and not _alive(world, s.worker)]
     def holding(issue: bool) -> int:
         return sum(1 for c in world.cards if (c.issue is not None) == issue
                    for s in all_steps.get(c.short, []) if s.state in HOLDS_SLOT and _alive(world, s.worker))
@@ -377,6 +382,10 @@ def _eligible_step(steps: list[Step]) -> Step | None:
         if s.state != DONE:
             return None
     return None
+
+
+def _first_open(steps: list[Step]) -> Step | None:
+    return next((s for s in steps if s.state != DONE), None)
 
 
 def _step(all_steps: dict, short: str, n: int) -> Step | None:

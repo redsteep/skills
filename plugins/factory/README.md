@@ -22,6 +22,11 @@ with uncommitted or unpushed work there the step waits and you get a ping. A sta
 another one is based on), and deleting a merged branch lets GitHub repoint the PR above. An adopted PR written by someone other than
 you starts with an **architecture gate**: pre-pr-review's architecture reviewer alone, then the
 worker waits for your OK before anything else runs.
+A PR too big to read in one sitting is then **cut**: the worker carves the parts that stand
+alone — a refactor, a migration — into new PRs off main, inserts them as `#<m>` items before the
+adopted one, and builds the first; the adopted PR keeps the rest, its author and its discussion,
+and comes last. Only a card's first unfinished step is ever started or replaced, so the adopted
+PR waits behind its pieces.
 
 **GitHub issues, too** (optional, profile `## Issues`). An open issue with the profile's label is
 a job with no spec. Its first worker builds it as one PR — or, when the fix is more than one PR you

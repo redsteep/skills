@@ -10,7 +10,9 @@ branch, no PR, no design.
 2. **PRs the card already has** (linked in its description, comments or attachments): every
    open one becomes a step of its own, in the order they must merge — a PR stacked on another
    comes after it. Name the item `#<number> <what it does>`; the factory then adopts that PR
-   instead of building the step. Merged ones are history, not steps; closed ones are ignored.
+   instead of building the step — even a big one: its step worker cuts it into smaller PRs once
+   it has read the diff, so don't judge its size here. Merged ones are history, not steps;
+   closed ones are ignored.
    Then add steps only for what the card still needs beyond those PRs.
 3. Cut the rest into steps. One step = one PR that stands on its own: it can be merged and deployed
    alone, and the product works after it. **Prefer cutting vertically, by use case**: each step
