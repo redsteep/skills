@@ -15,7 +15,9 @@ finished work and never restart a step that has a PR.
   the developer, the card's architecture gate waits on them (re-run it over all the card's
   adopted PRs if the PR body has no `Architecture reviewed at` line, then ping); with the label,
   its step 4.
-- `merged` → *Handoff* only.
+- an issue's step, `in-progress`, no PR → *Issue*: no spec phase; step 1 splits first only if
+  the issue body still has no `## Factory steps` section.
+- `merged` → *Handoff* only (an issue's: *Issue* step 6).
 - `fixing` → the fix PR's phase, as above.
 
 Events the old worker missed are not re-sent; read the PR's state instead. Ping only if the step

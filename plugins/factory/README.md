@@ -23,12 +23,16 @@ you starts with an **architecture gate**: pre-pr-review's architecture reviewer 
 worker waits for your OK before anything else runs.
 
 **GitHub issues, too** (optional, profile `## Issues`). An open issue with the profile's label is
-a one-step job: no split, no spec, straight to the build. Cards get free slots first, and issues
-hold at most `WIP` of them (default one). Its PR always tries the auto-merge — you review it only
-when the gate hook refuses. A merged issue frees its slot, so while the gate lets PRs through
-the next issue follows; `Per day` caps how many start in any 24 hours.
-After the merge the profile's issue handoff checks the deploy, and the worker closes the issue. Label only issues that need no design decision; a worker that hits
-one pings you.
+a job with no spec. Its first worker builds it as one PR — or, when the fix is more than one PR you
+could read in one sitting, first writes a `## Factory steps` task list into the issue body (a
+migration on its own, a type change before the cleanup it allows, cleanup by area) and the steps
+then run one PR at a time, like a card's. Issues have their own pool, `WIP` (default one), apart
+from the cards': a card's PR waits for your review, an issue's tries the auto-merge, and you
+review it only when the gate hook refuses. A merged step frees the slot, so while the gate lets
+PRs through the next step or issue follows; `Per day` caps how many issue steps start in any 24
+hours. After each merge the profile's issue handoff checks the deploy; the worker ticks its step,
+and after the last one closes the issue. Label only issues that need no design decision; a worker
+that hits one pings you.
 
 In the Claude app a worker shows by what it works on — `factory · <card> · 1/2`,
 `factory · #<n> <issue title>` — while `factory-<card>-s<N>` stays its routing name.

@@ -122,8 +122,10 @@ no other worker exists yet, and the dispatcher sends you events for your PR only
 
 ## Issue
 
-The step is a GitHub issue its owner labelled `{issue_label}`: it goes from description to PR
-without a design decision. No spec, no checklist, no card — the issue is the whole step.
+The step is a GitHub issue its owner labelled `{issue_label}`, or one step of it: it goes from
+description to PR without a design decision. No spec, no card. A fix that fits one PR is the
+whole issue; a bigger one is split into steps listed in the issue's own body, one PR each, and you
+build only step {step_n} — the dispatcher starts the next step's worker once yours is done.
 
 1. Read it (`gh issue view <n> --comments`) and the code it names. If it does need a decision
    after all — a new mechanism, options to choose between, an API contract change, a schema
@@ -133,18 +135,41 @@ without a design decision. No spec, no checklist, no card — the issue is the w
    decision: `gh issue close <n> --comment "Already done in #<pr>: <where it lives now>"` (any
    leftover difference, a name or a detail, goes in the comment) and end your turn; the dispatcher
    then stops you. Only when part of the ask is still missing, build that part.
-2. **Off limits** for an issue: {issue_off_limits}.
-3. *Build*, steps 1–2. pre-pr-review opens the PR at its step 7: add `--label factory` and write
-   `Refs #<n>` in the body — never `Closes`/`Fixes`: the issue closes only after the beta check.
-4. **Triage: always try the auto-merge.** Add the `Triage:` paragraph and run the profile's
+2. **Split — step 1 only, when the body has no `## Factory steps` section.** Ask whether the
+   whole fix is one PR the developer could read in one sitting. If it is, build it: no list. If
+   not, cut it into steps first; this needs no sign-off. Each step is one PR that merges and
+   deploys alone and leaves `{base}` working. Cut by kind of change, not by line count:
+   - a schema migration is a step of its own;
+   - a type or interface change comes before the cleanup it allows (guards it makes dead, a
+     fallback no longer reachable);
+   - mechanical cleanup is cut by area — one package, one layer, one family of handlers;
+   - tests of a state the code no longer allows go with the step that rules it out.
+   Order them as they must merge. Append the list to the issue body, leaving the rest of it as
+   it is — `gh issue view <n> --json body -q .body`, add the section, `gh issue edit <n>
+   --body-file <file>`:
+   ```
+   ## Factory steps
+
+   - [ ] <one imperative line: what changes, and what is true on {base} after it>
+   ```
+   Then build only the first item: you are step 1. Later steps find the list written; they never
+   change it — a step that turns out wrong pings instead.
+3. **Off limits** for an issue: {issue_off_limits}.
+4. *Build*, steps 1–2, for your step only. pre-pr-review opens the PR at its step 7: add
+   `--label factory`, name the step in the title when the issue has a list (`… (#<n>, step
+   {step_n}/<total>)`), and write `Refs #<n>` in the body — never `Closes`/`Fixes`: the issue
+   closes only after the last step's beta check.
+5. **Triage: always try the auto-merge.** Add the `Triage:` paragraph and run the profile's
    **Merge command**, then label as in *Triage*. Your own judgement never sends an issue's PR to
    review — only the gate hook does. If it denies, take the review path of *Triage* and put the
    hook's rule in the ping: `"PR #<n> needs review — <rule>"`.
-5. On `merged`: `{lock} acquire handoff`, run `{issue_handoff}` with `issue=<n>`, then
-   `{lock} release handoff` (also when it fails). Deployed and green →
-   `gh issue close <n> --comment "Shipped in #<pr>, deployed."` and end your turn; the dispatcher
-   then stops you. Broken → a fix PR as in *Handoff* step 4.
-6. `pr-closed` → ping `"issue #<n>: PR closed — redo, or remove {issue_label} from the issue to
+6. On `merged`: `{lock} acquire handoff`, run `{issue_handoff}` with `issue=<n>`, then
+   `{lock} release handoff` (also when it fails). Deployed and green:
+   - the last step, or no list → `gh issue close <n> --comment "Shipped in #<pr>, deployed."`;
+   - otherwise → tick your item in the body (`- [ ]` → `- [x]`, the same `--body-file` way) and
+     `gh issue comment <n> --body "Step {step_n}/<total> shipped in #<pr>, deployed."`.
+   Then end your turn; the dispatcher stops you. Broken → a fix PR as in *Handoff* step 4.
+7. `pr-closed` → ping `"issue #<n>: PR closed — redo, or remove {issue_label} from the issue to
    drop it?"` and wait. Redo as in *Events*; dropping is the developer's label change, nothing
    for you to do.
 

@@ -42,8 +42,22 @@ def world(cards, prs=(), branches=(), workers=None, sent=(), wip=3, issue_wip=1,
                  frozenset(sent), wip, issue_wip=issue_wip, issue_daily=issue_daily, now=NOW)
 
 
-def issue(number, open_=True):
-    return issue_card(number, f"Issue {number}", f"https://github.com/o/r/issues/{number}", open_)
+def issue(number, open_=True, body=""):
+    return issue_card(number, f"Issue {number}", f"https://github.com/o/r/issues/{number}", open_, body)
+
+
+STEPS_BODY = """## Problem
+
+- [ ] not a step: a task list outside the steps section
+
+## Factory steps
+
+- [x] make the column NOT NULL
+- [ ] make the domain types required
+
+## Notes
+- [ ] not a step either
+"""
 
 
 def started(actions):
@@ -200,6 +214,49 @@ class Issues(unittest.TestCase):
                          ["mcp__x", "mcp__trello"])
         self.assertNotIn("mcp__trello", deny_list(profile))
         self.assertFalse([r for r in deny_list(profile, issue=True) if r.startswith("Bash(gh issue close")])
+
+    def test_only_an_issue_worker_may_edit_and_comment_on_issues(self):
+        # it writes its step list into the body and ticks it; a card's worker has no issue to edit
+        profile = Profile("## Issues\n- **Label:** `ok`\n")
+        edits = ("Bash(gh issue edit", "Bash(gh issue comment")
+        self.assertFalse([r for r in deny_list(profile, issue=True) if r.startswith(edits)])
+        self.assertEqual(len([r for r in deny_list(profile) if r.startswith(edits)]), 2)
+
+
+class IssueSteps(unittest.TestCase):
+    def test_the_steps_section_of_the_body_is_the_step_list(self):
+        self.assertEqual(issue(7, body=STEPS_BODY).items,
+                         (done("make the column NOT NULL"), todo("make the domain types required")))
+
+    def test_without_a_steps_section_the_issue_is_one_step(self):
+        self.assertEqual(issue(7, body="## Problem\n- [ ] a task\n").items, (todo("Issue 7"),))
+
+    def test_a_closed_issue_reads_done_throughout(self):
+        self.assertEqual(issue(7, open_=False, body=STEPS_BODY).items,
+                         (done("make the column NOT NULL"), done("make the domain types required")))
+
+    def test_the_next_step_starts_once_the_ticked_one_is_cleaned_up(self):
+        w = world([issue(7, body=STEPS_BODY)], prs=[pr(1, "feature/factory-i7-s1", "MERGED")])
+        self.assertEqual(started(decide(w)), [("i7", 2, None)])
+
+    def test_the_next_step_waits_while_the_merged_one_is_unticked(self):
+        body = STEPS_BODY.replace("- [x]", "- [ ]")
+        w = world([issue(7, body=body)], prs=[pr(1, "feature/factory-i7-s1", "MERGED")],
+                  branches=["feature/factory-i7-s1"], workers={"factory-i7-s1": "busy"})
+        self.assertEqual(started(decide(w)), [])
+
+    def test_a_list_written_mid_step_keeps_the_running_worker_as_step_one(self):
+        # the first worker splits while it runs: same branch, same worker, nothing restarted
+        body = STEPS_BODY.replace("- [x]", "- [ ]")
+        w = world([issue(7, body=body)], branches=["feature/factory-i7-s1"], workers={"factory-i7-s1": "busy"})
+        self.assertEqual(started(decide(w)), [])
+        self.assertFalse([a for a in decide(w) if isinstance(a, Cleanup)])
+
+    def test_each_step_counts_against_the_daily_cap(self):
+        p = pr(1, "feature/factory-i7-s1", "MERGED")
+        today = PR(p.number, p.state, p.head, p.head_sha, p.ci, p.conflicting, p.url, created=NOW - timedelta(hours=1))
+        w = world([issue(7, body=STEPS_BODY)], prs=[today], issue_daily=1)
+        self.assertEqual(started(decide(w)), [])
 
 
 class DisplayName(unittest.TestCase):

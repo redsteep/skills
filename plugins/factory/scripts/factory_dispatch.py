@@ -75,10 +75,28 @@ class Card:
     issue: int | None = None         # a GitHub issue standing in for a card: one step, its own item
 
 
-def issue_card(number: int, title: str, url: str, open_: bool) -> Card:
-    """A labelled GitHub issue as a one-step card: ready while open, its one item done once closed
-    (the worker closes it after the beta check)."""
-    return Card(str(number), issue_short(number), title, url, open_, (Item(title, not open_),), issue=number)
+ISSUE_STEPS = "Factory steps"
+_TASK = re.compile(r"^\s*[-*]\s+\[([ xX])\]\s+(.+?)\s*$")
+
+
+def issue_items(title: str, body: str, open_: bool) -> tuple[Item, ...]:
+    """The issue's `## Factory steps` task list — written into the body by its first worker when
+    the fix is more than one PR — else the issue as one step named for its title. A closed issue
+    reads done throughout: the worker closes it after the last step's beta check."""
+    items: list[Item] = []
+    inside = False
+    for line in (body or "").splitlines():
+        if line.startswith("#"):
+            inside = line.lstrip("#").strip() == ISSUE_STEPS
+        elif inside and (m := _TASK.match(line)):
+            items.append(Item(m[2], m[1] != " " or not open_))
+    return tuple(items) or (Item(title, not open_),)
+
+
+def issue_card(number: int, title: str, url: str, open_: bool, body: str = "") -> Card:
+    """A labelled GitHub issue as a card: ready while open, its steps from `issue_items`."""
+    return Card(str(number), issue_short(number), title, url, open_, issue_items(title, body, open_),
+                issue=number)
 
 
 @dataclass(frozen=True)
@@ -383,8 +401,8 @@ def load_cards(profile: Profile) -> tuple[Card, ...]:
 def load_issues(repo: Path, label: str) -> tuple[Card, ...]:
     """Issues labelled for the factory, oldest first; closed ones too, so their steps read done."""
     out = run(["gh", "issue", "list", "--label", label, "--state", "all", "--limit", "200",
-               "--json", "number,title,state,url"], cwd=repo)
-    return tuple(issue_card(i["number"], i["title"], i["url"], i["state"] == "OPEN")
+               "--json", "number,title,state,url,body"], cwd=repo)
+    return tuple(issue_card(i["number"], i["title"], i["url"], i["state"] == "OPEN", i.get("body") or "")
                  for i in sorted(json.loads(out), key=lambda i: i["number"]))
 
 
@@ -537,8 +555,10 @@ class Executor:
 
 
 # Shared runner rules the factory replaces: the auto-merge gate hook decides merges, and an
-# issue's worker closes its issue after the beta check.
+# issue's worker closes its issue after the beta check. An issue's worker also writes its step
+# list into the issue body and ticks it, and reports a shipped step in a comment.
 NOT_DENIED = ("Bash(gh pr merge", "Bash(gh issue close")
+NOT_DENIED_TO_ISSUES = ("Bash(gh issue edit", "Bash(gh issue comment")
 
 
 def deny_list(profile: Profile, issue: bool = False) -> list[str]:
@@ -546,7 +566,7 @@ def deny_list(profile: Profile, issue: bool = False) -> list[str]:
     the profile's `## Deny` rules — and, for an issue's worker, the `## Issues` ones."""
     shared = PLUGIN_ROOT.parent.parent / "shared/runner-deny.txt"
     rules = [l.strip() for l in shared.read_text().splitlines() if l.strip() and not l.startswith("#")]
-    rules = [r for r in rules if not r.startswith(NOT_DENIED)]
+    rules = [r for r in rules if not r.startswith(NOT_DENIED + (NOT_DENIED_TO_ISSUES if issue else ()))]
     return rules + profile.items("Deny") + (profile.items("Issues") if issue else [])
 
 
@@ -566,7 +586,8 @@ def _entry(step: Step | None) -> str:
         return ""
     if step.card.issue is not None:
         return (f"This step is **GitHub issue #{step.card.issue}**, marked as needing no design "
-                "decision: there is no spec phase and no Trello card. Start at *Issue*.")
+                "decision: there is no spec phase and no Trello card. Start at *Issue*"
+                + (" — its steps are already listed, so skip the split." if step.n > 1 else "."))
     if step.pr_number is None:
         return "Start at *Spec*."
     return (f"This step **adopts PR #{step.pr_number}** (branch `{step.branch}`), written before the "
