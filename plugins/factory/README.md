@@ -53,6 +53,12 @@ The dispatcher keeps no state of its own beyond `~/.local/state/factory/`: which
 were already delivered, and two locks. Everything else is re-derived each dispatch from the PRs,
 the card's `Factory steps` checklist and the `feature/factory-*` branches — a reboot loses nothing.
 
+**Slots belong to live workers.** A WIP slot is held by the live worker of a step in progress or
+fixing — not by the step's state. A step that reads in progress with no worker (its worker died,
+or a closed PR still sits on its branch) gets a replacement only through a free slot, ahead of
+any new start; a merged step's replacement, there for the handoff, starts at once. Nothing is
+preempted: a slot once given stays with whoever has it.
+
 A worker is a normal Claude Code session: open it in the Claude app (Code → its name, or the link
 in the Slack DM) and type. Events from the dispatcher start with `Factory event:`.
 

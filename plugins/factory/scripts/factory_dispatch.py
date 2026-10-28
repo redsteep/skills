@@ -41,7 +41,6 @@ DROPPED = "[dropped]"
 PENDING, IN_PROGRESS, MERGED, FIXING, DONE, DROPPED_STATE = (
     "pending", "in-progress", "merged", "fixing", "done", "dropped")
 HOLDS_SLOT = {IN_PROGRESS, FIXING}
-NEEDS_WORKER = {IN_PROGRESS, MERGED, FIXING}
 
 
 # --- the world ---------------------------------------------------------------------------
@@ -276,12 +275,10 @@ def decide(world: World) -> list:
             continue
         for step in all_steps.get(card.short, []):
             prs = step_all_prs(step, world.prs)
-            keys = [k for p in prs for k, _ in pr_events(p) if k not in world.sent]
-            # 2. A step that needs a worker and has none gets a replacement.
-            if step.state in NEEDS_WORKER and not _alive(world, step.worker):
-                actions.append(StartStep(step, recovered=step.state))
-                if keys:
-                    actions.append(MarkSent(tuple(keys)))
+            # 2. A merged step that lost its worker gets a replacement at once: the handoff needs
+            # one, and a merged step holds no slot (rule 4 replaces the others).
+            if step.state == MERGED and not _alive(world, step.worker):
+                actions += _replace(step, world)
             # 3. A live worker hears about every change to its PRs once.
             elif _alive(world, step.worker):
                 for pr in prs:
@@ -289,31 +286,43 @@ def decide(world: World) -> list:
                         if key not in world.sent:
                             actions.append(SendEvent(step.worker, key, f"Factory event: {text}"))
 
-    # 4. Free slots go to eligible steps, those already under way first, then board (issue-number)
-    # order. Cards and issues draw on **separate** pools -- wip for cards, issue_wip for issues --
+    # 4. A slot is held by a **live worker** of an in-progress or fixing step, not by the step's
+    # state: a step that reads in-progress with no worker -- its worker died, or a closed PR still
+    # sits on its branch -- holds nothing, and gets a worker back only through a free slot. So a
+    # slot once given stays with whoever has it. Free slots go first to steps under way without a
+    # worker (a crashed worker's step gets its slot back before anything new starts), then to
+    # eligible pending steps -- cards with a step behind them first, then board (issue-number)
+    # order. Nothing is preempted: a live worker is never stopped to make room.
+    # Cards and issues draw on **separate** pools -- wip for cards, issue_wip for issues --
     # because the two queue behind different people: a card's PR waits for the developer's review,
     # an issue's merges itself. Sharing one pool meant three cards waiting on a review stalled
-    # every autofix behind them. No more than issue_daily issues start in any 24 hours.
-    def holding(cards) -> int:
-        return sum(1 for c in cards for s in all_steps.get(c.short, []) if s.state in HOLDS_SLOT)
-    cards_held = holding(c for c in world.cards if c.issue is None)
-    issues_held = holding(c for c in world.cards if c.issue is not None)
-    issues_today = _issues_started_since(world, all_steps, world.now - timedelta(days=1)) if world.now else 0
+    # every autofix behind them. No more than issue_daily issue steps start in any 24 hours; a
+    # replacement is no new start.
+    ready = [c for c in world.cards if c.ready]
+    under_way = [s for c in ready for s in all_steps.get(c.short, [])
+                 if s.state in HOLDS_SLOT and not _alive(world, s.worker)]
     def started(card: Card) -> bool:
         return any(s.state != PENDING for s in all_steps.get(card.short, []))
-    for card in sorted((c for c in world.cards if c.ready), key=lambda c: not started(c)):
-        if card.issue is None:
-            if cards_held >= world.wip:
-                continue
-        elif issues_held >= world.issue_wip or (world.issue_daily is not None
-                                                and issues_today >= world.issue_daily):
+    pending = [s for c in sorted(ready, key=lambda c: not started(c))
+               if (s := _eligible_step(all_steps.get(c.short, []))) is not None]
+    def holding(issue: bool) -> int:
+        return sum(1 for c in world.cards if (c.issue is not None) == issue
+                   for s in all_steps.get(c.short, []) if s.state in HOLDS_SLOT and _alive(world, s.worker))
+    held = {False: holding(False), True: holding(True)}
+    wip = {False: world.wip, True: world.issue_wip}
+    issues_today = _issues_started_since(world, all_steps, world.now - timedelta(days=1)) if world.now else 0
+    for step in under_way + pending:
+        issue = step.card.issue is not None
+        if held[issue] >= wip[issue]:
             continue
-        eligible = _eligible_step(all_steps.get(card.short, []))
-        if eligible is not None:
-            actions.append(StartStep(eligible))
-            cards_held += card.issue is None
-            issues_held += card.issue is not None
-            issues_today += card.issue is not None
+        if step.state == PENDING:
+            if issue and world.issue_daily is not None and issues_today >= world.issue_daily:
+                continue
+            actions.append(StartStep(step))
+            issues_today += issue
+        else:
+            actions += _replace(step, world)
+        held[issue] += 1
 
     # 5. Done steps and stopped cards are cleaned up; the dispatcher is the only cleanup owner.
     for name, info in world.workers.items():
@@ -351,6 +360,13 @@ def _issues_started_since(world: World, all_steps: dict, since: datetime) -> int
             elif pr.created is not None and pr.created >= since:
                 count += 1
     return count
+
+
+def _replace(step: Step, world: World) -> list:
+    """A replacement worker for a step under way. The events it would have heard are recorded,
+    not sent: it re-derives them from the PRs themselves."""
+    keys = [k for p in step_all_prs(step, world.prs) for k, _ in pr_events(p) if k not in world.sent]
+    return [StartStep(step, recovered=step.state)] + ([MarkSent(tuple(keys))] if keys else [])
 
 
 def _eligible_step(steps: list[Step]) -> Step | None:

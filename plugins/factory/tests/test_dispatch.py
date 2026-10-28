@@ -134,6 +134,53 @@ class Slots(unittest.TestCase):
         self.assertEqual(started(decide(w)), [("b", 1, None)])
 
 
+class SlotsHeldByLiveWorkers(unittest.TestCase):
+    """A slot is held by a live worker, not by a step's state: a step under way without one gets
+    it back only through a free slot, ahead of any pending step."""
+
+    def test_a_step_revived_by_its_closed_pr_waits_while_the_slot_is_taken(self):
+        # an issue relabelled after its PR was closed: the closed PR reads in-progress, no worker
+        w = world([issue(7), issue(8)], prs=[pr(1, "feature/factory-i7-s1", "CLOSED")],
+                  branches=["feature/factory-i8-s1"], workers={"factory-i8-s1": "busy"})
+        self.assertEqual(started(decide(w)), [])
+
+    def test_a_step_without_a_worker_is_replaced_when_a_slot_is_free(self):
+        w = world([issue(7)], prs=[pr(1, "feature/factory-i7-s1", "CLOSED")])
+        self.assertEqual(started(decide(w)), [("i7", 1, IN_PROGRESS)])
+
+    def test_a_crashed_step_gets_the_slot_back_before_a_pending_one(self):
+        w = world([card("b", [todo()]), card("a", [todo()])], branches=["feature/factory-a-s1"],
+                  workers={"factory-a-s1": "dead"}, wip=1)
+        self.assertEqual(started(decide(w)), [("a", 1, IN_PROGRESS)])
+
+    def test_a_restarting_worker_keeps_its_slot(self):
+        w = world([card("a", [todo()]), card("b", [todo()])], branches=["feature/factory-a-s1"],
+                  workers={"factory-a-s1": "restarting"}, wip=1)
+        self.assertEqual(started(decide(w)), [])
+
+    def test_a_fixing_step_without_a_worker_waits_for_a_slot(self):
+        prs = [pr(1, "feature/factory-a-s1", "MERGED"), pr(2, "feature/factory-a-s1-fix1")]
+        w = world([card("a", [todo()]), card("b", [todo()])], prs=prs, branches=["feature/factory-b-s1"],
+                  workers={"factory-b-s1": "busy"}, wip=1)
+        self.assertEqual(started(decide(w)), [])
+
+    def test_a_merged_step_is_replaced_with_the_pool_full(self):
+        # the handoff needs a worker, and a merged step holds no slot
+        w = world([card("a", [todo()]), card("b", [todo()])], prs=[pr(1, "feature/factory-a-s1", "MERGED")],
+                  branches=["feature/factory-b-s1"], workers={"factory-b-s1": "busy"}, wip=1)
+        self.assertEqual(started(decide(w)), [("a", 1, MERGED)])
+
+    def test_a_replacement_is_no_new_start_for_the_daily_cap(self):
+        p = pr(1, "feature/factory-i7-s1")
+        today = PR(p.number, p.state, p.head, p.head_sha, p.ci, p.conflicting, p.url, created=NOW - timedelta(hours=1))
+        w = world([issue(7)], prs=[today], issue_daily=1)
+        self.assertEqual(started(decide(w)), [("i7", 1, IN_PROGRESS)])
+
+    def test_a_replacement_takes_the_slot_from_a_pending_step_in_the_same_pool(self):
+        w = world([issue(8), issue(7)], prs=[pr(1, "feature/factory-i7-s1")])
+        self.assertEqual(started(decide(w)), [("i7", 1, IN_PROGRESS)])
+
+
 class Eligibility(unittest.TestCase):
     def test_next_step_waits_while_previous_is_merged_but_unchecked(self):
         w = world([card("a", [todo("one"), todo("two")])], prs=[pr(1, "feature/factory-a-s1", "MERGED")],
