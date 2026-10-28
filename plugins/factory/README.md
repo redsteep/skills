@@ -37,8 +37,10 @@ from the cards': a card's PR waits for your review, an issue's tries the auto-me
 review it only when the gate hook refuses. A merged step frees the slot, so while the gate lets
 PRs through the next step or issue follows; `Per day` caps how many issue steps start in any 24
 hours. After each merge the profile's issue handoff checks the deploy; the worker ticks its step,
-and after the last one closes the issue. Label only issues that need no design decision; a worker
-that hits one pings you.
+and after the last one closes the issue. The label says what kind of work an issue is, not that you
+approved it: a worker that finds a design decision in one adds the profile's **Needs decision**
+label, comments which decision it needs, and moves on, so a slot is never held waiting on you.
+Removing that label is how you say the decision is made.
 
 In the Claude app a worker shows by what it works on — `factory · <card> · 1/2`,
 `factory · #<n> <issue title>` — while `factory-<card>-s<N>` stays its routing name.

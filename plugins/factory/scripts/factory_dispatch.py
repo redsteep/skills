@@ -423,12 +423,23 @@ def load_cards(profile: Profile) -> tuple[Card, ...]:
     return tuple(cards)
 
 
-def load_issues(repo: Path, label: str) -> tuple[Card, ...]:
+def takes_issue(issue: dict, decision_label: str) -> bool:
+    """Whether the factory takes this issue. The selection label says what kind of work an issue
+    is, not that anyone approved it for unattended work — so a worker that finds a design decision
+    in one marks it with the **Needs decision** label and ends. The next dispatch has to leave it
+    alone, or the factory offers it again every two minutes and the slot never moves on."""
+    if not decision_label:
+        return True
+    return not any(l["name"] == decision_label for l in issue.get("labels") or [])
+
+
+def load_issues(repo: Path, label: str, decision_label: str = "") -> tuple[Card, ...]:
     """Issues labelled for the factory, oldest first; closed ones too, so their steps read done."""
     out = run(["gh", "issue", "list", "--label", label, "--state", "all", "--limit", "200",
-               "--json", "number,title,state,url,body"], cwd=repo)
+               "--json", "number,title,state,url,body,labels"], cwd=repo)
+    issues = [i for i in json.loads(out) if takes_issue(i, decision_label)]
     return tuple(issue_card(i["number"], i["title"], i["url"], i["state"] == "OPEN", i.get("body") or "")
-                 for i in sorted(json.loads(out), key=lambda i: i["number"]))
+                 for i in sorted(issues, key=lambda i: i["number"]))
 
 
 def _ci(rollup: list[dict]) -> str | None:
@@ -685,6 +696,7 @@ def render_prompt(template: str, repo: Path, profile: Profile, name: str, card: 
         "source": (f'GitHub issue #{card.issue} "{card.name}" ({card.url})' if card.issue is not None
                    else f'the Trello card "{card.name}" ({card.url}, card id `{card.id}`)'),
         "issue_label": profile.get("Issues", "Label", "") or "",
+        "issue_decision_label": profile.get("Issues", "Needs decision", "") or "",
         "issue_handoff": profile.get("Issues", "Handoff", "") or "",
         "issue_off_limits": profile.text("Issues", "Off limits", "nothing beyond the ground rules")
                             or "nothing beyond the ground rules",
@@ -736,7 +748,7 @@ def main() -> int:
     adopted = {n for c in cards if c.ready for i in c.items or () if (n := adopted_number(i)) is not None}
     issue_label = profile.get("Issues", "Label")
     if issue_label:
-        cards += load_issues(repo, issue_label)
+        cards += load_issues(repo, issue_label, profile.get("Issues", "Needs decision", "") or "")
     world = World(
         cards=cards,
         prs=load_prs(repo, label, adopted),
