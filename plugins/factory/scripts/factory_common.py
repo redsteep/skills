@@ -231,3 +231,58 @@ def mark_launched(name: str) -> None:
     seen = _read_seen()
     seen[name] = datetime.now(timezone.utc)
     _write_seen(seen)
+
+# --- the developer's presence ----------------------------------------------------------------
+# A worker's conversation is where the developer reviews. What they typed there -- never a peer
+# session's message, a task notice, or the dispatcher's start prompt -- is read from the session
+# transcript: by the merge gate (their LGTM) and by the dispatcher (whether they are still here).
+START_PROMPTS = ("You are **" + WORKER_PREFIX, "**You replace a factory worker")
+
+
+def developer_messages(transcript: Path) -> list[tuple[str, str]]:
+    """(timestamp, text) of every message the developer typed in this session, oldest first. The
+    session's first human-origin message is the dispatcher's start prompt, not the developer."""
+    out = []
+    for line in transcript.read_text().splitlines():
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        if entry.get("type") != "user" or entry.get("isMeta") or entry.get("isCompactSummary"):
+            continue
+        if (entry.get("origin") or {}).get("kind") != "human":
+            continue
+        content = (entry.get("message") or {}).get("content")
+        text = content if isinstance(content, str) else " ".join(
+            b.get("text", "") for b in content or [] if isinstance(b, dict) and b.get("type") == "text")
+        if text.strip():
+            out.append((entry.get("timestamp", ""), text))
+    return out[1:]
+
+
+def transcript_of(session_id: str) -> Path | None:
+    """A session's transcript, wherever Claude Code filed it (one folder per working directory)."""
+    found = list((Path.home() / ".claude/projects").glob(f"*/{session_id}.jsonl"))
+    return found[0] if found else None
+
+
+def last_developer_message(session_id: str | None) -> datetime | None:
+    path = transcript_of(session_id) if session_id else None
+    said = developer_messages(path) if path else []
+    return datetime.fromisoformat(said[-1][0].replace("Z", "+00:00")) if said and said[-1][0] else None
+
+
+def reviews_on(repo: Path) -> dict[str, int]:
+    """Branches in review mode → how many requests their queue still holds. review-mode keeps a
+    marker and a queue per branch under the git common dir."""
+    out = run(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], cwd=repo).strip()
+    state = Path(out) / "review-mode"
+    reviews = {}
+    for marker in state.glob("*/marker.json"):
+        try:
+            branch = json.loads(marker.read_text())["branch"]
+        except (ValueError, KeyError):
+            continue
+        queue = marker.parent / "queue.md"
+        reviews[branch] = queue.read_text().count("- [ ]") if queue.is_file() else 0
+    return reviews

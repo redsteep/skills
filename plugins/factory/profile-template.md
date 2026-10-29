@@ -23,6 +23,7 @@ Section and key names are read by code — keep them. Values in backticks.
 - **Requester:** `<name>` `<Slack member id>` — who hears that a card is done
 - **Requester channel:** `<#channel>` `<channel id>`
 - **Permission mode:** `auto`
+- **Review idle:** `15` — minutes without a message from you in a worker's conversation before its review mode goes off
 
 ## Repo
 

@@ -1,5 +1,5 @@
 {
-  "description": "Factory: inside a factory worker, the only merge is the command the profile declares, on a PR that passes the profile's auto-merge gate and its Precondition",
+  "description": "Factory: inside a factory worker, the only merge is the profile's command on a PR that passes its gate (or the developer's LGTM), a force-push only with lease to the worker's own branch; and the developer's message puts the worker's PR in review mode",
   "hooks": {
     "PreToolUse": [
       {
@@ -9,6 +9,17 @@
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/auto_merge_gate.py\"",
             "timeout": 120
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/review_presence.py\"",
+            "timeout": 30
           }
         ]
       }

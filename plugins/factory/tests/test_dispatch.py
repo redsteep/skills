@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from factory_dispatch import (  # noqa: E402
     takes_issue,
-    DONE, DROPPED_STATE, FIXING, IN_PROGRESS, MERGED, PENDING, PR, Card, Cleanup, Item,
+    DONE, DROPPED_STATE, FIXING, IN_PROGRESS, MERGED, PENDING, PR, Card, Cleanup, Item, ReviewIdle,
     Executor, MarkSent, SendEvent, StartSplit, StartStep, World, checked_out_at, decide, derive_step_state,
     _pr, deny_list, display_name, issue_card, uncommitted,
 )
@@ -39,10 +39,12 @@ def pr(number, head, state="OPEN", ci=None, conflicting=False, sha="abc"):
 NOW = datetime(2026, 10, 27, 12, 0, tzinfo=timezone.utc)
 
 
-def world(cards, prs=(), branches=(), workers=None, sent=(), wip=3, issue_wip=1, issue_daily=None):
+def world(cards, prs=(), branches=(), workers=None, sent=(), wip=3, issue_wip=1, issue_daily=None,
+          presence=None, reviews=None):
     return World(tuple(cards), tuple(prs), frozenset(branches),
                  {name: {"status": status} for name, status in (workers or {}).items()},
-                 frozenset(sent), wip, issue_wip=issue_wip, issue_daily=issue_daily, now=NOW)
+                 frozenset(sent), wip, issue_wip=issue_wip, issue_daily=issue_daily, now=NOW,
+                 presence=presence or {}, reviews=reviews or {})
 
 
 def issue(number, open_=True, body=""):
@@ -496,6 +498,42 @@ class CarvedAdoptedPR(unittest.TestCase):
                   prs=[labelled(20, "feat/x-refactor", "MERGED"), labelled(21, "feat/x-migration", "MERGED"),
                        labelled(12, "feat/x")])
         self.assertEqual(started(decide(w)), [("a", 4, IN_PROGRESS)])
+
+
+class ReviewPresence(unittest.TestCase):
+    """Review mode lasts while the developer is in the worker's conversation: 15 minutes of
+    silence there turns it off, unless changes they asked for wait in the queue."""
+
+    BRANCH = "feature/factory-a-s1"
+
+    def idle(self, presence, reviews, prs=()):
+        w = world([card("a", [todo()])], prs=prs or [pr(7, self.BRANCH)], branches=[self.BRANCH],
+                  workers={"factory-a-s1": "idle"}, presence=presence, reviews=reviews)
+        return [a for a in decide(w) if isinstance(a, ReviewIdle)]
+
+    def test_fifteen_minutes_of_silence_ends_the_review(self):
+        self.assertEqual(self.idle({"factory-a-s1": NOW - timedelta(minutes=15)}, {self.BRANCH: 0}),
+                         [ReviewIdle("factory-a-s1", self.BRANCH)])
+
+    def test_just_under_fifteen_minutes_the_review_stays(self):
+        self.assertEqual(self.idle({"factory-a-s1": NOW - timedelta(minutes=14, seconds=59)}, {self.BRANCH: 0}), [])
+
+    def test_a_review_the_developer_never_spoke_in_ends(self):
+        self.assertEqual(self.idle({}, {self.BRANCH: 0}), [ReviewIdle("factory-a-s1", self.BRANCH)])
+
+    def test_queued_changes_keep_the_review_on(self):
+        self.assertEqual(self.idle({}, {self.BRANCH: 2}), [])
+
+    def test_no_review_on_nothing_to_end(self):
+        self.assertEqual(self.idle({}, {}), [])
+
+    def test_a_fix_prs_review_ends_too(self):
+        fix = "feature/factory-a-s1-fix1"
+        prs = [pr(7, self.BRANCH, "MERGED"), pr(8, fix)]
+        self.assertEqual(self.idle({}, {fix: 0}, prs), [ReviewIdle("factory-a-s1", fix)])
+
+    def test_another_workers_review_is_left_alone(self):
+        self.assertEqual(self.idle({}, {"feature/factory-b-s1": 0}), [])
 
 
 class CleanupRule(unittest.TestCase):

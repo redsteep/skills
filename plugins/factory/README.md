@@ -67,6 +67,14 @@ or a closed PR still sits on its branch) gets a replacement only through a free 
 any new start; a merged step's replacement, there for the handoff, starts at once. Nothing is
 preempted: a slot once given stays with whoever has it.
 
+**Review mode follows you.** A worker opens its PR and pings you; review mode stays off while
+you're away, so the worker keeps the PR healthy itself — rebases on a conflict, re-parents a
+migration head, fixes red CI — and tells you what it changed. Your first message in its
+conversation turns review mode on (a `UserPromptSubmit` hook): what you read stays put, and your
+change requests queue for your go. After `Review idle` minutes (profile `## Settings`, default 15)
+with nothing from you, the dispatcher turns it off again and the worker does the upkeep it held —
+unless you queued changes, which wait for you.
+
 A worker is a normal Claude Code session: open it in the Claude app (Code → its name, or the link
 in the Slack DM) and type. Events from the dispatcher start with `Factory event:`.
 
@@ -113,8 +121,9 @@ in the Slack DM) and type. Events from the dispatcher start with `Factory event:
 
 1. **Runner deny list** — `<marketplace>/shared/runner-deny.txt`, shared with nightly-backlog:
    no push to main, no force-push, no `gh workflow` / `gh secret`, no cloud CLIs, no `ssh`; plus
-   the profile's `## Deny`. Factory drops only `gh pr merge` from it, because:
-2. **`auto-merge-gate` hook** — inside a worker, the only merge is the profile's **Merge command**,
+   the profile's `## Deny`. Factory drops `gh pr merge` and `git push --force` from it, because:
+2. **`auto-merge-gate` hook** — inside a worker, the only force-push is `--force-with-lease` to
+   the worker's own factory branch (an adopted PR's branch is merged into, never rebased); the only merge is the profile's **Merge command**,
    alone on its line, on a `factory` PR with a `Triage:` paragraph, no PR stacked on it, no
    excluded path, and the profile's **Precondition** exiting 0; `gh api` merges, `--admin` and
    pushes to main are denied too.

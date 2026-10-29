@@ -29,7 +29,8 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from factory_common import (  # noqa: E402
-    PAUSE_FILE, STATE_DIR, Profile, issue_short, list_agents, live_workers, load_repo_secrets, mark_launched,
+    PAUSE_FILE, STATE_DIR, Profile, issue_short, last_developer_message, list_agents, live_workers,
+    load_repo_secrets, mark_launched, reviews_on,
     parse_worker_name, run,
     sent_store, split_name, step_branch, step_name,
 )
@@ -111,7 +112,10 @@ class World:
     label: str = "factory"           # the GitHub label that makes a PR the factory's
     issue_wip: int = 1               # issues in flight: its own pool, not carved out of wip
     issue_daily: int | None = None   # issues started in any 24 hours; None = no cap
-    now: datetime | None = None      # the dispatch's clock, for issue_daily
+    now: datetime | None = None      # the dispatch's clock, for issue_daily and review_idle
+    presence: dict = field(default_factory=dict)  # worker → when the developer last typed there
+    reviews: dict = field(default_factory=dict)   # branch in review mode → requests still queued
+    review_idle: timedelta = timedelta(minutes=15)  # silence after which the developer has left
 
 
 @dataclass(frozen=True)
@@ -161,6 +165,13 @@ class SendEvent:
 class MarkSent:
     """Events a replacement worker re-derives from the PR itself — recorded, not sent."""
     keys: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ReviewIdle:
+    """The developer left the review: turn its review mode off and tell the worker."""
+    worker: str
+    branch: str
 
 
 @dataclass(frozen=True)
@@ -293,6 +304,7 @@ def decide(world: World) -> list:
                     for key, text in pr_events(pr):
                         if key not in world.sent:
                             actions.append(SendEvent(step.worker, key, f"Factory event: {text}"))
+                actions += _review_idle(step, prs, world)
 
     # 4. A slot is held by a **live worker** of an in-progress or fixing step, not by the step's
     # state: a step that reads in-progress with no worker -- its worker died, or a closed PR still
@@ -357,6 +369,19 @@ def decide(world: World) -> list:
             if s.state == DONE and s.branch in world.branches and s.worker not in world.workers:
                 actions.append(Cleanup(None, s.branch, s.fix_prefix))
     return actions
+
+
+def _review_idle(step: Step, prs: list, world: World) -> list:
+    """Review mode is for the developer's presence: it goes on with their first message in the
+    worker's conversation (a hook) and off once they have said nothing there for review_idle --
+    unless they queued changes, which wait for their go. Off, the worker keeps its PR healthy."""
+    if world.now is None:
+        return []
+    seen = world.presence.get(step.worker)
+    if seen is not None and world.now - seen < world.review_idle:
+        return []
+    branches = dict.fromkeys([step.branch, *(p.head for p in prs if p.state == "OPEN")])
+    return [ReviewIdle(step.worker, b) for b in branches if world.reviews.get(b) == 0]
 
 
 def _issues_started_since(world: World, all_steps: dict, since: datetime) -> int:
@@ -607,6 +632,14 @@ class Executor:
             with sent_store() as sent:
                 sent.add(a.key)
 
+    def _ReviewIdle(self, a: ReviewIdle) -> None:
+        script = PLUGIN_ROOT.parent / "review-mode/scripts/review-mode.sh"
+        run(["bash", str(script), "off", "-b", a.branch], cwd=self.repo,
+            env={"CLAUDE_PROJECT_DIR": str(self.repo)})
+        self._SendEvent(SendEvent(a.worker, f"review-idle:{a.branch}:{datetime.now(timezone.utc).isoformat()}",
+                                  f"Factory event: review-idle {a.branch} — the developer has said nothing here "
+                                  "for a while, so review mode is off: do the upkeep you held"))
+
     def _MarkSent(self, a: MarkSent) -> None:
         with sent_store() as sent:
             sent.update(a.keys)
@@ -659,10 +692,10 @@ class Executor:
         mark_launched(name)
 
 
-# Shared runner rules the factory replaces: the auto-merge gate hook decides merges, and an
+# Shared runner rules the factory replaces: the gate hook decides merges and force-pushes, and an
 # issue's worker closes its issue after the beta check. An issue's worker also writes its step
 # list into the issue body and ticks it, and reports a shipped step in a comment.
-NOT_DENIED = ("Bash(gh pr merge", "Bash(gh issue close")
+NOT_DENIED = ("Bash(gh pr merge", "Bash(gh issue close", "Bash(git push --force")
 NOT_DENIED_TO_ISSUES = ("Bash(gh issue edit", "Bash(gh issue comment")
 
 
@@ -769,17 +802,22 @@ def main() -> int:
     issue_label = profile.get("Issues", "Label")
     if issue_label:
         cards += load_issues(repo, issue_label, profile.get("Issues", "Needs decision", "") or "")
+    workers = live_workers(record=True)
     world = World(
         cards=cards,
         prs=load_prs(repo, label, adopted),
         branches=load_branches(repo),
-        workers=live_workers(record=True),
+        workers=workers,
         sent=sent_now,
         wip=int(profile.get("Settings", "WIP", "3")),
         label=label,
         issue_wip=int(profile.get("Issues", "WIP", "1")),
         issue_daily=int(daily) if (daily := profile.get("Issues", "Per day")) else None,
         now=datetime.now(timezone.utc),
+        presence={name: last_developer_message(info.get("sessionId"))
+                  for name, info in workers.items() if info.get("pid")},
+        reviews=reviews_on(repo),
+        review_idle=timedelta(minutes=int(profile.get("Settings", "Review idle", "15"))),
     )
     execute = Executor(repo, profile, dry_run=args.dry_run)
     failures = 0

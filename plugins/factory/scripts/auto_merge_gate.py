@@ -16,6 +16,10 @@ session transcript at merge time -- only a message the developer typed counts (o
 never the session's first, which is the dispatcher's start prompt), and only when it is newer
 than the PR's head commit: a push after the LGTM needs another look.
 
+A worker may force-push, with a lease, only to its own factory branch: it rebases on main to
+resolve a conflict. Everything else stays denied -- the runner deny list's force-push rule is
+lifted for workers so that this hook, which can tell the two apart, decides.
+
 Applies only inside a factory worker (env FACTORY_WORKER, set by the dispatcher). Outside one it
 exits 0 silently and the session's normal permissions apply. The worker's judgement can only
 downgrade a PR to "needs review" — it never reaches this code with anything but a request.
@@ -35,7 +39,7 @@ from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from factory_common import Profile, run  # noqa: E402
+from factory_common import BRANCH_PREFIX, Profile, developer_messages, run  # noqa: E402
 
 MERGE_API = re.compile(r"/pulls/\d+/merge\b|mergePullRequest|enablePullRequestAutoMerge|/merges\b")
 PUSH_MAIN = re.compile(r"\bgit\s+push\b[^;&|]*\b(main|master)\b")
@@ -105,27 +109,6 @@ def _when(stamp: str) -> datetime:
     return datetime.fromisoformat(stamp.replace("Z", "+00:00"))
 
 
-def developer_messages(transcript: Path) -> list[tuple[str, str]]:
-    """(timestamp, text) of every message the developer typed in this session, oldest first. The
-    session's first human-origin message is the dispatcher's start prompt, not the developer."""
-    out = []
-    for line in transcript.read_text().splitlines():
-        try:
-            entry = json.loads(line)
-        except ValueError:
-            continue
-        if entry.get("type") != "user" or entry.get("isMeta") or entry.get("isCompactSummary"):
-            continue
-        if (entry.get("origin") or {}).get("kind") != "human":
-            continue
-        content = (entry.get("message") or {}).get("content")
-        text = content if isinstance(content, str) else " ".join(
-            b.get("text", "") for b in content or [] if isinstance(b, dict) and b.get("type") == "text")
-        if text.strip():
-            out.append((entry.get("timestamp", ""), text))
-    return out[1:]
-
-
 def approval_failed(messages: list[tuple[str, str]], number: str, diff: Diff) -> str | None:
     """Why the developer's word does not cover merging PR `number` at its current head, or None.
     The latest message that says either way decides: an LGTM (or "merge"), or a hold."""
@@ -161,12 +144,36 @@ def precondition_failed(gate: Gate, number: str, repo: Path) -> str | None:
     return said[-1] if said else f"precondition exited {out.returncode}"
 
 
+FORCE = re.compile(r"\bgit\s+push\b.*(\s--force\b|\s--force-with-lease\b|\s-f\b|\s\+\S)")
+
+
+def force_push(command: str, current_branch) -> tuple[str, str] | None:
+    """A worker may force-push its own factory branch, with a lease, and nothing else: a rebase
+    on main is how it resolves a conflict. An adopted PR's branch is someone else's -- a merge."""
+    if not FORCE.search(command):
+        return None
+    if re.search(r"[;&|`$]", command):
+        return "deny", "run `git push --force-with-lease [origin <branch>]` as a command of its own"
+    args = shlex.split(command)[2:]
+    flags = [a for a in args if a.startswith("-")]
+    rest = [a for a in args if not a.startswith("-")]
+    if flags != ["--force-with-lease"] or len(rest) > 2 or (rest and rest[0] != "origin"):
+        return "deny", "the only force-push is `git push --force-with-lease [origin <branch>]`"
+    branch = rest[1] if len(rest) == 2 else current_branch()
+    if not branch.startswith(BRANCH_PREFIX):
+        return "deny", f"`{branch}` is not a factory branch — merge `origin/main` into it instead of rebasing"
+    return "allow", f"force-push with lease to the worker's own branch `{branch}`"
+
+
 def judge(command: str, fetch_diff, gate: Gate, repo: Path = Path("."),
-          messages=lambda: []) -> tuple[str, str] | None:
+          messages=lambda: [], current_branch=lambda: "") -> tuple[str, str] | None:
     """(decision, reason) for a factory worker's Bash command; None = not a merge, no opinion.
     `messages` returns the developer's messages in this session (only read for an LGTM merge)."""
     if PUSH_MAIN.search(command):
         return "deny", "factory workers never push to main"
+    pushed = force_push(command, current_branch)
+    if pushed:
+        return pushed
     if re.search(r"\bgh\s+api\b", command) and MERGE_API.search(command):
         return "deny", f"merging through `gh api` is not allowed — use `{gate.shape}`"
     m = re.search(r"\bgh\s+pr\s+merge\b(.*)", command)
@@ -227,8 +234,10 @@ def main() -> int:
     repo = Path(os.environ.get("FACTORY_REPO") or event.get("cwd") or ".")
     gate = Gate.from_profile(Profile.load(repo))
     transcript = Path(event.get("transcript_path") or "/nonexistent")
+    cwd = Path(event.get("cwd") or ".")
     verdict = judge(command, _fetch_diff, gate, repo,
-                    lambda: developer_messages(transcript) if transcript.is_file() else [])
+                    lambda: developer_messages(transcript) if transcript.is_file() else [],
+                    lambda: run(["git", "symbolic-ref", "--short", "HEAD"], cwd=cwd).strip())
     if verdict is None:
         return 0
     decision, reason = verdict

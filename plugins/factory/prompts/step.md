@@ -15,7 +15,8 @@ read what was decided. Repo rules: {rules}. Profile: `{profile}`.
   and **end your turn**. Never poll or sleep waiting for them. One ping per reason; the command
   drops repeats itself.
 - You never merge, except through the auto-merge path in *Triage*, with the command the profile
-  declares. You never push to `{base}`, and never force-push.
+  declares. You never push to `{base}`. The only force-push is `git push --force-with-lease`
+  to your own factory branch; an adopted PR's branch is someone else's — merge into it instead.
 - Nothing goes to anyone but the developer (Slack, Trello comments, card moves) without their
   explicit yes in this conversation — except the two Trello writes the handoff's step mode makes
   on its own (the PR link, checking your item).
@@ -29,14 +30,23 @@ you already handled is ignored.
 
 - `merged PR #n` → *Handoff*.
 - `ci-failed PR #n (<checks>) <url>` → may come again for the same commit, when a check fails
-  anew without a push (a re-run, or a status main re-posts, like two migration heads). If review
-  mode is off: read the failure, fix it, push; after a second
-  failed fix of the same failure, ping. While an adopted PR waits at its architecture gate, just
-  note it — the developer decides the shape first. If review mode is on: queue the fix
-  (`review-mode.sh add "…"`) and ping — leaving review mode is the developer's call.
+  anew without a push (a re-run, or a status main re-posts, like two migration heads). Upkeep:
+  read the failure, fix it, push; after a second failed fix of the same failure, ping. While an
+  adopted PR waits at its architecture gate, just note it — the developer decides the shape first.
 - `ci-passed PR #n` → note it; act only if you were waiting for it.
-- `conflict PR #n` → rebase on `origin/{base}` (regenerate what needs it: a migration head, generated
-  code), push; with review mode on, queue it and ping instead.
+- `conflict PR #n` → upkeep: on your own factory branch, rebase on `origin/{base}` (regenerate
+  what needs it: a migration head, generated code) and `git push --force-with-lease`; on an
+  adopted PR's branch — someone else's — merge `origin/{base}` in instead and push.
+- `review-idle <branch>` → the developer left the review; the dispatcher turned review mode off.
+  Do the upkeep you held, then end your turn.
+
+**Upkeep and review mode.** Review mode means the developer is here, reading: it goes on with
+their first message in this conversation once your PR is open, and the dispatcher turns it off
+after a stretch of silence, unless they queued changes (those wait for their go). Upkeep — a
+conflict, a red check, a migration head — is yours to do **while review mode is off**: fix, push,
+then `{ping} "PR #<n> updated — <what changed>"`. While it is on, don't change what they are
+reading: say in one line what needs doing and hold it until their go or `review-idle`. Never
+queue upkeep as one of their change requests.
 - `pr-closed PR #n` → the developer said no. Prefix your checklist item with `[dropped] `, ping
   `"step {step_n} dropped — redo, skip, or stop the card?"`, wait. Then:
   - **redo** → remove the prefix, `git push origin --delete {branch}`,
@@ -68,7 +78,7 @@ git commit --allow-empty -m "spec approved
 Approved-by: <the developer>" && git push
 ```
 
-Never `--amend`: a force-push is denied to you, and the spec commit is already pushed. Then *Build*.
+Never `--amend`: the spec commit is already pushed, and the approval belongs after it. Then *Build*.
 
 ## Adopted PR
 
@@ -81,8 +91,8 @@ from its code, not from a spec.
    with a merge commit and the dispatcher deleted its branch — GitHub then repoints this PR onto
    `{base}` itself. Check (`gh pr view <n> --json baseRefName`); if it still names the old
    branch, `gh pr edit <n> --base {base}`. If that step was squash-merged after all, this PR still
-   carries its original commits: `git rebase --onto origin/{base} <that PR's headRefOid> <branch>`,
-   `git push --force-with-lease`.
+   carries its original commits, and taking them out would mean force-pushing someone else's
+   branch: ping `"PR #<n> still carries the squash-merged #<m>'s commits — rebase it, or I merge {base} in?"`.
 3. **Who wrote it decides the first stage.** Compare the PR's author with the profile's
    `Developer GitHub` login.
    - **Already labelled `factory:arch-approved`** → an earlier step's gate covered it: step 4.
@@ -223,10 +233,11 @@ Then act on your verdict:
   checks it, the project's excluded paths and the profile's `Precondition`; if it denies, the
   reason names the rule — take the review path and say so in the PR. When the command returns,
   `gh pr edit <n> --add-label factory:auto-merged`, then wait for `merged`.
-- **Review path:** `review-mode.sh on <worktree>`, `{ping} "PR #<n> ready for review"`, end your
-  turn. The developer reviews here: review mode answers, queues their change requests, and applies
-  the queue on their go-ahead — then re-run pre-pr-review (it updates the PR) and turn review mode
-  back on. The developer merges — or, when the profile enables `## Merge on LGTM`, says LGTM
+- **Review path:** `{ping} "PR #<n> ready for review"`, end your turn — review mode stays off
+  until the developer shows up (a hook turns it on with their first message here). The developer
+  reviews here: review mode answers, queues their change requests, and applies the queue on their
+  go-ahead — then re-run pre-pr-review (it updates the PR) and turn review mode back on
+  (`review-mode.sh on <worktree>`). The developer merges — or, when the profile enables `## Merge on LGTM`, says LGTM
   here (or "merge"), and you merge for them: with nothing left in the queue, turn review mode
   off and run the profile's merge command — with `--merge` in place of `--squash` when a PR is
   stacked on this one — then wait for `merged`. If the queue still holds changes, apply them,

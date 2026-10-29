@@ -10,7 +10,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import json
 import tempfile
 
-from auto_merge_gate import Diff, Gate, approval_failed, developer_messages, failed_rule, judge  # noqa: E402
+from auto_merge_gate import Diff, Gate, approval_failed, failed_rule, force_push, judge  # noqa: E402
+from review_presence import typed_by_developer  # noqa: E402
+from factory_common import developer_messages  # noqa: E402
 
 EXCLUDED = ("db/migrations/", "*.lock", "src/generated/api.ts")
 GATE = Gate(required_args=("--auto", "--squash"), precondition="", excluded=EXCLUDED)
@@ -217,3 +219,47 @@ class DeveloperMessages(unittest.TestCase):
             user([{"type": "text", "text": "#412 LGTM"}], "human"),
         ])
         self.assertEqual(developer_messages(path), [(AFTER, "#412 LGTM")])
+
+
+class ForcePush(unittest.TestCase):
+    """A worker force-pushes only its own factory branch, only with a lease."""
+
+    def push(self, command, on="feature/factory-a-s1"):
+        return judge(command, None, GATE, current_branch=lambda: on)
+
+    def test_with_lease_to_its_own_branch_is_allowed(self):
+        for command in ("git push --force-with-lease", "git push --force-with-lease origin feature/factory-a-s1"):
+            with self.subTest(command=command):
+                self.assertEqual(self.push(command)[0], "allow")
+
+    def test_plain_force_is_refused(self):
+        self.assertEqual(self.push("git push --force origin feature/factory-a-s1"),
+                         ("deny", "the only force-push is `git push --force-with-lease [origin <branch>]`"))
+
+    def test_a_plus_refspec_is_refused(self):
+        self.assertEqual(self.push("git push origin +feature/factory-a-s1")[0], "deny")
+
+    def test_someone_elses_branch_is_refused(self):
+        self.assertEqual(self.push("git push --force-with-lease", on="feat/performance-overview-orders"),
+                         ("deny", "`feat/performance-overview-orders` is not a factory branch — merge `origin/main` "
+                                  "into it instead of rebasing"))
+
+    def test_main_is_refused(self):
+        self.assertEqual(self.push("git push --force-with-lease origin main"),
+                         ("deny", "factory workers never push to main"))
+
+    def test_a_plain_push_is_no_concern_of_the_gate(self):
+        self.assertIsNone(self.push("git push origin feature/factory-a-s1"))
+
+
+class TypedByDeveloper(unittest.TestCase):
+    def test_what_the_developer_types_counts(self):
+        self.assertTrue(typed_by_developer("why does this skip archived leads?"))
+
+    def test_start_prompts_peers_and_notices_do_not(self):
+        for prompt in ("You are **factory-a-s1**, the factory worker for step 1",
+                       "**You replace a factory worker that died.**",
+                       "Another Claude session sent a message: <cross-session-message>Factory event: merged",
+                       "<task-notification><task-id>x</task-id></task-notification>", "  "):
+            with self.subTest(prompt=prompt[:30]):
+                self.assertFalse(typed_by_developer(prompt))
