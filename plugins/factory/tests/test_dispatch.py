@@ -628,6 +628,10 @@ class Reinstructing(unittest.TestCase):
     def test_a_dead_worker_is_replaced_not_reinstructed(self):
         self.assertEqual(self.reinstructed({"factory-a-s1": "dead"}), [])
 
+    def test_a_done_steps_worker_waiting_to_be_stopped_is_left_alone(self):
+        w = world([card("a", [done()])], workers={"factory-a-s1": "busy"}, version="0.13.0")
+        self.assertEqual([a for a in decide(w) if isinstance(a, Reinstruct)], [])
+
     def test_no_version_known_no_reinstructing(self):
         self.assertEqual(self.reinstructed({"factory-a-s1": "busy"}, version=""), [])
 

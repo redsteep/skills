@@ -334,7 +334,8 @@ def decide(world: World) -> list:
                         if key not in world.sent:
                             actions.append(SendEvent(step.worker, key, f"Factory event: {text}"))
                 actions += _review_idle(step, prs, world)
-                if world.version and instructions_key(step.worker, world.version) not in world.sent:
+                if world.version and step.state != DONE \
+                        and instructions_key(step.worker, world.version) not in world.sent:
                     actions.append(Reinstruct(step))
 
     # 4. A slot is held by a **live worker** of a started step -- through its handoff, until the
