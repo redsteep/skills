@@ -120,12 +120,12 @@ class Slots(unittest.TestCase):
                   workers={f"factory-{c}-s1": "busy" for c in "ab"})
         self.assertEqual(started(decide(w)), [("c", 1, None)])
 
-    def test_merged_step_holds_no_slot(self):
+    def test_a_merged_step_with_its_worker_still_holds_its_slot(self):
         cards = [card("a", [todo()]), card("b", [todo()]), card("c", [todo()]), card("d", [todo()])]
         w = world(cards, prs=[pr(1, "feature/factory-a-s1", "MERGED")],
                   branches=[f"feature/factory-{c}-s1" for c in "abc"],
                   workers={f"factory-{c}-s1": "busy" for c in "abc"})
-        self.assertEqual(started(decide(w)), [("d", 1, None)])
+        self.assertEqual(started(decide(w)), [])
 
     def test_fixing_step_holds_a_slot(self):
         cards = [card(c, [todo()]) for c in ("a", "b", "c", "d")]
@@ -175,6 +175,22 @@ class SlotsHeldByLiveWorkers(unittest.TestCase):
         w = world([card("a", [todo()]), card("b", [todo()])], prs=[pr(1, "feature/factory-a-s1", "MERGED")],
                   branches=["feature/factory-b-s1"], workers={"factory-b-s1": "busy"}, wip=1)
         self.assertEqual(started(decide(w)), [("a", 1, MERGED)])
+
+    def test_a_merged_step_in_its_handoff_keeps_the_slot(self):
+        w = world([issue(7), issue(8)], prs=[pr(1, "feature/factory-i7-s1", "MERGED")],
+                  workers={"factory-i7-s1": "busy"}, sent=["1:merged"])
+        self.assertEqual(started(decide(w)), [])
+
+    def test_a_done_step_keeps_the_slot_until_its_worker_is_stopped(self):
+        w = world([issue(7, body=STEPS_BODY.replace("- [ ] make the domain", "- [x] make the domain")), issue(8)],
+                  workers={"factory-i7-s2": "idle"})
+        self.assertEqual(started(decide(w)), [])
+
+    def test_once_the_worker_is_stopped_the_issues_next_step_takes_the_slot(self):
+        body = STEPS_BODY.replace("- [x] make the column", "- [x] make the column").replace(
+            "- [ ] make the domain types required", "- [ ] make the domain types required\n- [ ] then the cleanup")
+        w = world([issue(7, body=body), issue(8)], prs=[pr(1, "feature/factory-i7-s1", "MERGED")])
+        self.assertEqual(started(decide(w)), [("i7", 2, None)])
 
     def test_a_replacement_is_no_new_start_for_the_daily_cap(self):
         p = pr(1, "feature/factory-i7-s1")

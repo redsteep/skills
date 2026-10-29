@@ -61,8 +61,10 @@ The dispatcher keeps no state of its own beyond `~/.local/state/factory/`: which
 were already delivered, and two locks. Everything else is re-derived each dispatch from the PRs,
 the card's `Factory steps` checklist and the `feature/factory-*` branches — a reboot loses nothing.
 
-**Slots belong to live workers.** A WIP slot is held by the live worker of a step in progress or
-fixing — not by the step's state. A step that reads in progress with no worker (its worker died,
+**Slots belong to live workers.** A WIP slot is held by a step's live worker from its start until
+the dispatcher stops it after the handoff — not by the step's state. So the slot a merged step
+frees goes to the next step of the same card or issue, which has started first, rather than to
+whatever else was waiting. A step that reads in progress with no worker (its worker died,
 or a closed PR still sits on its branch) gets a replacement only through a free slot, ahead of
 any new start; a merged step's replacement, there for the handoff, starts at once. Nothing is
 preempted: a slot once given stays with whoever has it.

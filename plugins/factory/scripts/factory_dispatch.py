@@ -304,7 +304,7 @@ def decide(world: World) -> list:
         for step in all_steps.get(card.short, []):
             prs = step_all_prs(step, world.prs)
             # 2. A merged step that lost its worker gets a replacement at once: the handoff needs
-            # one, and a merged step holds no slot (rule 4 replaces the others).
+            # one, and it takes back the slot its old worker held (rule 4 replaces the others).
             if step.state == MERGED and not _alive(world, step.worker):
                 actions += _replace(step, world)
             # 3. A live worker hears about every change to its PRs once.
@@ -315,8 +315,10 @@ def decide(world: World) -> list:
                             actions.append(SendEvent(step.worker, key, f"Factory event: {text}"))
                 actions += _review_idle(step, prs, world)
 
-    # 4. A slot is held by a **live worker** of an in-progress or fixing step, not by the step's
-    # state: a step that reads in-progress with no worker -- its worker died, or a closed PR still
+    # 4. A slot is held by a **live worker** of a started step -- through its handoff, until the
+    # dispatcher has cleaned the done step up -- not by the step's state: so an issue's or a card's
+    # next step, started-first, gets the slot back before anything new can take it between two
+    # steps. A step that reads in-progress with no worker -- its worker died, or a closed PR still
     # sits on its branch -- holds nothing, and gets a worker back only through a free slot. So a
     # slot once given stays with whoever has it. Free slots go first to steps under way without a
     # worker (a crashed worker's step gets its slot back before anything new starts), then to
@@ -341,7 +343,7 @@ def decide(world: World) -> list:
                and not _alive(world, s.worker)]
     def holding(issue: bool) -> int:
         return sum(1 for c in world.cards if (c.issue is not None) == issue
-                   for s in all_steps.get(c.short, []) if s.state in HOLDS_SLOT and _alive(world, s.worker))
+                   for s in all_steps.get(c.short, []) if s.state != PENDING and _alive(world, s.worker))
     held = {False: holding(False), True: holding(True)}
     wip = {False: world.wip, True: world.issue_wip}
     issues_today = _issues_started_since(world, all_steps, world.now - timedelta(days=1)) if world.now else 0
