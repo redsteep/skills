@@ -8,6 +8,14 @@ project, said in its own terms. The hook keeps only what no project may relax: n
 `gh api`, no push to the base branch, no `--admin`, one PR number, no shell metacharacters, the
 factory label, no PR stacked on this one, a `Triage:` paragraph, and the excluded paths.
 
+**Merge on LGTM** is not auto-merge: it is the developer's merge, run by the worker. With the
+profile's `## Merge on LGTM` enabled, the developer's own LGTM in the worker's conversation lets
+the worker run the merge past what its own judgement never may: the excluded paths, the
+`Triage:` paragraph, and a stacked PR (with `--merge`, a merge commit, instead of `--squash`). It is read from the
+session transcript at merge time -- only a message the developer typed counts (origin `human`,
+never the session's first, which is the dispatcher's start prompt), and only when it is newer
+than the PR's head commit: a push after the LGTM needs another look.
+
 Applies only inside a factory worker (env FACTORY_WORKER, set by the dispatcher). Outside one it
 exits 0 silently and the session's normal permissions apply. The worker's judgement can only
 downgrade a PR to "needs review" — it never reaches this code with anything but a request.
@@ -23,6 +31,7 @@ import shlex
 import subprocess
 import sys
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -40,6 +49,8 @@ class Diff:
     labels: tuple[str, ...]
     body: str
     stacked: tuple[int, ...] = ()      # open PRs based on this PR's branch
+    head_committed: str = ""           # the head commit's ISO committer date
+    ci_failed: bool = False            # a check on the head commit concluded in failure
 
 
 DEFAULT_MERGE = "gh pr merge --auto --squash"
@@ -51,6 +62,7 @@ class Gate:
     precondition: str                  # shell command that must exit 0; "" = none
     excluded: tuple[str, ...]          # fnmatch globs; a trailing / means "anything under"
     required_label: str = "factory"
+    lgtm_merge: bool = False           # `## Merge on LGTM` enabled: the developer's LGTM merges
 
     @classmethod
     def from_profile(cls, profile: Profile) -> "Gate":
@@ -59,7 +71,8 @@ class Gate:
         return cls(tuple(args),
                    profile.get("Auto-merge", "Precondition", "") or "",
                    tuple(profile.items("Auto-merge")),
-                   profile.get("GitHub", "Label", "factory") or "factory")
+                   profile.get("GitHub", "Label", "factory") or "factory",
+                   (profile.get("Merge on LGTM", "Enabled", "") or "").strip("`").lower() == "yes")
 
     @property
     def shape(self) -> str:
@@ -83,6 +96,55 @@ def failed_rule(diff: Diff, gate: Gate) -> str | None:
     return None
 
 
+_HOLD = re.compile(r"\b(don'?t|do not|not yet|wait|hold)\b|\bnot\s+lgtm\b", re.I)
+_APPROVE = re.compile(r"\blgtm\b|\bmerge\b", re.I)
+_NUMBER = re.compile(r"#(\d+)")
+
+
+def _when(stamp: str) -> datetime:
+    return datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+
+
+def developer_messages(transcript: Path) -> list[tuple[str, str]]:
+    """(timestamp, text) of every message the developer typed in this session, oldest first. The
+    session's first human-origin message is the dispatcher's start prompt, not the developer."""
+    out = []
+    for line in transcript.read_text().splitlines():
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        if entry.get("type") != "user" or entry.get("isMeta") or entry.get("isCompactSummary"):
+            continue
+        if (entry.get("origin") or {}).get("kind") != "human":
+            continue
+        content = (entry.get("message") or {}).get("content")
+        text = content if isinstance(content, str) else " ".join(
+            b.get("text", "") for b in content or [] if isinstance(b, dict) and b.get("type") == "text")
+        if text.strip():
+            out.append((entry.get("timestamp", ""), text))
+    return out[1:]
+
+
+def approval_failed(messages: list[tuple[str, str]], number: str, diff: Diff) -> str | None:
+    """Why the developer's word does not cover merging PR `number` at its current head, or None.
+    The latest message that says either way decides: an LGTM (or "merge"), or a hold."""
+    for stamp, text in reversed(messages):
+        named = _NUMBER.findall(text)
+        if named and number not in named:
+            continue
+        if _HOLD.search(text):
+            return "your latest word on it is a hold"
+        if not _APPROVE.search(text) or text.rstrip().endswith("?"):
+            continue
+        if diff.head_committed and stamp and _when(stamp) < _when(diff.head_committed):
+            return "a commit was pushed after your LGTM — look again"
+        if diff.ci_failed:
+            return "CI failed on the head commit"
+        return None
+    return "no LGTM from the developer in this conversation"
+
+
 def precondition_failed(gate: Gate, number: str, repo: Path) -> str | None:
     """The project's own "safe to merge right now" check. Its output is the reason, so a project
     says why in its own words; a non-zero exit with no output still denies."""
@@ -99,8 +161,10 @@ def precondition_failed(gate: Gate, number: str, repo: Path) -> str | None:
     return said[-1] if said else f"precondition exited {out.returncode}"
 
 
-def judge(command: str, fetch_diff, gate: Gate, repo: Path = Path(".")) -> tuple[str, str] | None:
-    """(decision, reason) for a factory worker's Bash command; None = not a merge, no opinion."""
+def judge(command: str, fetch_diff, gate: Gate, repo: Path = Path("."),
+          messages=lambda: []) -> tuple[str, str] | None:
+    """(decision, reason) for a factory worker's Bash command; None = not a merge, no opinion.
+    `messages` returns the developer's messages in this session (only read for an LGTM merge)."""
     if PUSH_MAIN.search(command):
         return "deny", "factory workers never push to main"
     if re.search(r"\bgh\s+api\b", command) and MERGE_API.search(command):
@@ -111,29 +175,48 @@ def judge(command: str, fetch_diff, gate: Gate, repo: Path = Path(".")) -> tuple
     if re.search(r"[;&|`$]", command):
         return "deny", f"run `{gate.shape}` as a command of its own"
     args = shlex.split(m[1])
-    missing = [a for a in gate.required_args if a not in args]
-    if missing or {"--admin", "--delete-branch", "-d"} & set(args):
+    # A PR another one is stacked on merges with a merge commit, never a squash: only on an LGTM.
+    merge_commit = "--merge" in args
+    required = [("--merge" if a == "--squash" else a) for a in gate.required_args] if merge_commit \
+        else gate.required_args
+    missing = [a for a in required if a not in args]
+    if missing or {"--admin", "--delete-branch", "-d"} & set(args) or (merge_commit and "--squash" in args) \
+            or (merge_commit and not gate.lgtm_merge):
         return "deny", f"the only allowed merge is `{gate.shape}`"
     numbers = [a for a in args if a.isdigit()]
     if len(numbers) != 1:
         return "deny", f"name the PR number explicitly: `{gate.shape}`"
-    rule = failed_rule(fetch_diff(numbers[0]), gate)
-    if rule:
-        return "deny", f"auto-merge gate: {rule}. Take the review path instead."
+    diff = fetch_diff(numbers[0])
+    rule = failed_rule(diff, gate)
+    on_lgtm = bool(rule) or merge_commit
+    if on_lgtm:
+        if not gate.lgtm_merge or gate.required_label not in diff.labels:
+            return "deny", f"auto-merge gate: {rule}. Take the review path instead."
+        if merge_commit and not diff.stacked:
+            return "deny", f"no PR is stacked on #{numbers[0]} — merge it with `{gate.shape}`"
+        refused = approval_failed(messages(), numbers[0], diff)
+        if refused:
+            return "deny", f"merge on LGTM: {refused}."
     rule = precondition_failed(gate, numbers[0], repo)
     if rule:
-        return "deny", f"auto-merge gate: {rule}. Take the review path instead."
+        return "deny", (f"merge on LGTM: {rule}." if on_lgtm
+                        else f"auto-merge gate: {rule}. Take the review path instead.")
+    if on_lgtm:
+        return "allow", f"merging PR #{numbers[0]} on the developer's LGTM"
     return "allow", f"auto-merge gate passed for PR #{numbers[0]}"
 
 
 def _fetch_diff(number: str) -> Diff:
     data = json.loads(run(["gh", "pr", "view", number, "--json",
-                           "additions,deletions,files,labels,body,headRefName"]))
+                           "additions,deletions,files,labels,body,headRefName,commits,statusCheckRollup"]))
     stacked = json.loads(run(["gh", "pr", "list", "--base", data["headRefName"], "--state", "open",
                               "--json", "number"]) or "[]")
     return Diff(data["additions"], data["deletions"], tuple(f["path"] for f in data["files"]),
                 tuple(l["name"] for l in data["labels"]), data.get("body") or "",
-                tuple(p["number"] for p in stacked))
+                tuple(p["number"] for p in stacked),
+                (data.get("commits") or [{}])[-1].get("committedDate", ""),
+                any((c.get("conclusion") or "").upper() in ("FAILURE", "TIMED_OUT", "CANCELLED")
+                    for c in data.get("statusCheckRollup") or []))
 
 
 def main() -> int:
@@ -143,7 +226,9 @@ def main() -> int:
     command = (event.get("tool_input") or {}).get("command", "")
     repo = Path(os.environ.get("FACTORY_REPO") or event.get("cwd") or ".")
     gate = Gate.from_profile(Profile.load(repo))
-    verdict = judge(command, _fetch_diff, gate, repo)
+    transcript = Path(event.get("transcript_path") or "/nonexistent")
+    verdict = judge(command, _fetch_diff, gate, repo,
+                    lambda: developer_messages(transcript) if transcript.is_file() else [])
     if verdict is None:
         return 0
     decision, reason = verdict

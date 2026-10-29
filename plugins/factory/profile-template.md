@@ -87,3 +87,14 @@ Excluded paths — a trailing `/` means anything under it, otherwise a glob:
 - `migrations/`
 - `.github/`
 - `*.lock`
+
+## Merge on LGTM
+
+Optional. Not auto-merge: the developer's own merge, which the worker runs for them. With it
+enabled, the developer's `LGTM` (or "merge") typed in a worker's conversation lets the worker
+merge the PR under review — past the excluded paths above, and with a merge commit for a PR
+another is stacked on. Only a message the developer typed after the PR's last commit counts; a
+later "wait" or "don't merge" cancels it, and CI must not have failed. Leave it out to merge
+every reviewed PR yourself.
+
+- **Enabled:** yes

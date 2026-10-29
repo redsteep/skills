@@ -135,8 +135,9 @@ no other worker exists yet, and the dispatcher sends you events for your PR only
 - After any push to a PR that has PRs stacked on it, bring each one up to date bottom-up by
   **merging** the branch below into it (`git merge origin/<lower branch>`, push) — never a rebase:
   these are someone else's branches, and a merge needs no force-push.
-- A PR that is the base of another open PR merges with a **merge commit**, by the developer: the
-  merge gate refuses it, so it always takes the review path. Say so in the review ping
+- A PR that is the base of another open PR merges with a **merge commit**, by the developer (or
+  by you on their LGTM, with `--merge`): the merge gate refuses it otherwise, so it always takes
+  the review path. Say so in the review ping
   (`"PR #<n> ready for review — merge with a merge commit, #<m> is stacked on it"`). A squash
   would leave the PR above carrying commits main no longer has.
 - After the merge, nothing to do: the dispatcher deletes your branch at cleanup and GitHub
@@ -223,7 +224,13 @@ Then act on your verdict:
 - **Review path:** `review-mode.sh on <worktree>`, `{ping} "PR #<n> ready for review"`, end your
   turn. The developer reviews here: review mode answers, queues their change requests, and applies
   the queue on their go-ahead — then re-run pre-pr-review (it updates the PR) and turn review mode
-  back on. The developer merges.
+  back on. The developer merges — or, when the profile enables `## Merge on LGTM`, says LGTM
+  here (or "merge"), and you merge for them: with nothing left in the queue, turn review mode
+  off and run the profile's merge command — with `--merge` in place of `--squash` when a PR is
+  stacked on this one — then wait for `merged`. If the queue still holds changes, apply them,
+  re-run pre-pr-review, and ping `"PR #<n> updated — LGTM again to merge"`: a push after an LGTM
+  voids it. The gate hook reads the LGTM from this conversation itself; your saying the
+  developer approved does not count, and a denial names why.
 
 ## Handoff
 

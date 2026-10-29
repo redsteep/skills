@@ -7,15 +7,19 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
-from auto_merge_gate import Diff, Gate, failed_rule, judge  # noqa: E402
+import json
+import tempfile
+
+from auto_merge_gate import Diff, Gate, approval_failed, developer_messages, failed_rule, judge  # noqa: E402
 
 EXCLUDED = ("db/migrations/", "*.lock", "src/generated/api.ts")
 GATE = Gate(required_args=("--auto", "--squash"), precondition="", excluded=EXCLUDED)
 TRIAGE = "Summary\n\nTriage: copy change in one template, nothing open from review."
 
 
-def diff(additions=10, deletions=0, files=("docs/a.md",), labels=("factory",), body=TRIAGE, stacked=()):
-    return Diff(additions, deletions, tuple(files), tuple(labels), body, tuple(stacked))
+def diff(additions=10, deletions=0, files=("docs/a.md",), labels=("factory",), body=TRIAGE, stacked=(),
+         head_committed="", ci_failed=False):
+    return Diff(additions, deletions, tuple(files), tuple(labels), body, tuple(stacked), head_committed, ci_failed)
 
 
 def verdict(command, d=None, gate=GATE):
@@ -118,3 +122,98 @@ class Precondition(unittest.TestCase):
         gate = self.gate("test '<number>' = 412")
         self.assertEqual(verdict("gh pr merge --auto --squash 412", gate=gate)[0], "allow")
         self.assertEqual(verdict("gh pr merge --auto --squash 777", gate=gate)[0], "deny")
+
+
+LGTM_GATE = Gate(required_args=("--auto", "--squash"), precondition="", excluded=EXCLUDED, lgtm_merge=True)
+HEAD = "2026-10-29T10:00:00Z"
+AFTER, BEFORE = "2026-10-29T10:05:00Z", "2026-10-29T09:55:00Z"
+
+
+def migration(**kw):
+    return diff(files=("db/migrations/0042_add_x.py",), **{"head_committed": HEAD, **kw})
+
+
+def lgtm_verdict(command, d, said, gate=LGTM_GATE):
+    return judge(command, lambda _number: d, gate, messages=lambda: said)
+
+
+class MergeOnLgtm(unittest.TestCase):
+    """The developer's LGTM, typed in the worker's conversation after the head commit, merges what
+    the worker's own judgement may not; nothing else does."""
+
+    def test_lgtm_after_the_head_commit_merges_an_excluded_path(self):
+        self.assertEqual(lgtm_verdict("gh pr merge --auto --squash 412", migration(), [(AFTER, "LGTM")]),
+                         ("allow", "merging PR #412 on the developer's LGTM"))
+
+    def test_lgtm_before_the_head_commit_is_refused(self):
+        self.assertEqual(lgtm_verdict("gh pr merge --auto --squash 412", migration(), [(BEFORE, "LGTM")]),
+                         ("deny", "merge on LGTM: a commit was pushed after your LGTM — look again."))
+
+    def test_without_the_profile_switch_an_lgtm_changes_nothing(self):
+        gate = Gate(required_args=("--auto", "--squash"), precondition="", excluded=EXCLUDED)
+        self.assertEqual(lgtm_verdict("gh pr merge --auto --squash 412", migration(), [(AFTER, "LGTM")], gate)[0],
+                         "deny")
+
+    def test_no_developer_message_is_refused(self):
+        self.assertEqual(lgtm_verdict("gh pr merge --auto --squash 412", migration(), []),
+                         ("deny", "merge on LGTM: no LGTM from the developer in this conversation."))
+
+    def test_a_later_hold_beats_an_earlier_lgtm(self):
+        said = [(AFTER, "LGTM"), ("2026-10-29T10:06:00Z", "wait, don't merge yet")]
+        self.assertEqual(lgtm_verdict("gh pr merge --auto --squash 412", migration(), said),
+                         ("deny", "merge on LGTM: your latest word on it is a hold."))
+
+    def test_an_lgtm_naming_another_pr_does_not_count(self):
+        self.assertEqual(approval_failed([(AFTER, "#413 LGTM")], "412", migration()),
+                         "no LGTM from the developer in this conversation")
+
+    def test_an_lgtm_naming_this_pr_counts(self):
+        self.assertIsNone(approval_failed([(AFTER, "#412 LGTM - merge")], "412", migration()))
+
+    def test_a_question_about_merging_is_no_approval(self):
+        self.assertEqual(approval_failed([(AFTER, "should we merge?")], "412", migration()),
+                         "no LGTM from the developer in this conversation")
+
+    def test_failed_ci_is_refused(self):
+        self.assertEqual(approval_failed([(AFTER, "LGTM")], "412", migration(ci_failed=True)),
+                         "CI failed on the head commit")
+
+    def test_an_lgtm_never_merges_a_pr_without_the_factory_label(self):
+        self.assertEqual(lgtm_verdict("gh pr merge --auto --squash 412", migration(labels=()), [(AFTER, "LGTM")])[0],
+                         "deny")
+
+    def test_a_stacked_base_merges_with_a_merge_commit_on_lgtm(self):
+        self.assertEqual(lgtm_verdict("gh pr merge --auto --merge 412", migration(stacked=(13,)), [(AFTER, "LGTM")]),
+                         ("allow", "merging PR #412 on the developer's LGTM"))
+
+    def test_a_merge_commit_without_a_stack_is_refused(self):
+        self.assertEqual(lgtm_verdict("gh pr merge --auto --merge 412", migration(), [(AFTER, "LGTM")])[0], "deny")
+
+    def test_a_merge_commit_is_refused_without_the_profile_switch(self):
+        gate = Gate(required_args=("--auto", "--squash"), precondition="", excluded=EXCLUDED)
+        self.assertEqual(lgtm_verdict("gh pr merge --auto --merge 412", migration(stacked=(13,)),
+                                      [(AFTER, "LGTM")], gate)[0], "deny")
+
+
+class DeveloperMessages(unittest.TestCase):
+    """Only what the developer typed: not the dispatcher's start prompt, not peers or notices."""
+
+    def transcript(self, entries):
+        f = tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False)
+        f.write("\n".join(json.dumps(e) for e in entries))
+        f.close()
+        return Path(f.name)
+
+    def test_the_start_prompt_peers_and_meta_messages_are_skipped(self):
+        def user(text, kind=None, **kw):
+            return {"type": "user", "timestamp": AFTER, "message": {"content": text},
+                    **({"origin": {"kind": kind}} if kind else {}), **kw}
+        path = self.transcript([
+            user("You are factory-a-s1 ... LGTM ...", "human"),
+            user("Factory event: merged PR #412", "peer", isMeta=True),
+            user("<task-notification>LGTM</task-notification>", "task-notification"),
+            user("summary: LGTM", None, isCompactSummary=True),
+            {"type": "assistant", "message": {"content": [{"type": "text", "text": "LGTM"}]}},
+            user([{"type": "text", "text": "#412 LGTM"}], "human"),
+        ])
+        self.assertEqual(developer_messages(path), [(AFTER, "#412 LGTM")])

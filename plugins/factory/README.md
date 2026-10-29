@@ -118,9 +118,14 @@ in the Slack DM) and type. Events from the dispatcher start with `Factory event:
    alone on its line, on a `factory` PR with a `Triage:` paragraph, no PR stacked on it, no
    excluded path, and the profile's **Precondition** exiting 0; `gh api` merges, `--admin` and
    pushes to main are denied too.
-3. **The prompts** — a worker writes no code before your approval, posts nothing to anyone but you
+3. **Merge on LGTM** (optional, profile `## Merge on LGTM`) — not auto-merge: your merge, run
+   by the worker. The gate hook reads your `LGTM` from the worker's own transcript — a message you
+   typed, never a peer's or the dispatcher's, newer than the PR's head commit, not followed by a
+   hold, CI not failed — and only then lets the merge past the excluded paths (and a stacked
+   PR's `--merge`). A worker cannot approve on your behalf.
+4. **The prompts** — a worker writes no code before your approval, posts nothing to anyone but you
    without your yes, and its judgement can only send a PR to review, never past it.
-4. **Locks** — handoffs and migration round-trips run one worker at a time (`factory-lock`).
+5. **Locks** — handoffs and migration round-trips run one worker at a time (`factory-lock`).
 
 ## Files
 
