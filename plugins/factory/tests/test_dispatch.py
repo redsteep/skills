@@ -14,7 +14,7 @@ from factory_dispatch import (  # noqa: E402
     takes_issue,
     DONE, DROPPED_STATE, FIXING, IN_PROGRESS, MERGED, PENDING, PR, Card, Cleanup, Item,
     Executor, MarkSent, SendEvent, StartSplit, StartStep, World, checked_out_at, decide, derive_step_state,
-    deny_list, display_name, issue_card, uncommitted,
+    _pr, deny_list, display_name, issue_card, uncommitted,
 )
 from factory_common import Profile  # noqa: E402
 
@@ -375,6 +375,48 @@ class Events(unittest.TestCase):
         w = world([card("a", [todo()])], prs=[pr(7, "feature/factory-a-s1", "CLOSED")],
                   branches=["feature/factory-a-s1"], workers={"factory-a-s1": "idle"})
         self.assertEqual([a.key for a in decide(w) if isinstance(a, SendEvent)], ["7:closed"])
+
+
+def gh_pr(number, rollup, sha="86e5"):
+    """A PR as `gh pr list --json` returns it, with the given check rollup."""
+    return _pr({"number": number, "state": "OPEN", "headRefName": "feature/factory-a-s1", "headRefOid": sha,
+                "statusCheckRollup": rollup, "mergeable": "MERGEABLE", "url": f"https://github.com/o/r/pull/{number}"})
+
+
+SMOKE_FAILED = {"name": "Smoke", "status": "COMPLETED", "conclusion": "FAILURE", "completedAt": "2026-10-28T14:05:43Z"}
+SMOKE_PASSED = {**SMOKE_FAILED, "conclusion": "SUCCESS", "completedAt": "2026-10-28T15:00:00Z"}
+HEADS_FAILED = {"context": "migration-heads", "state": "FAILURE", "createdAt": "2026-10-29T11:07:54Z"}
+
+
+class CiRounds(unittest.TestCase):
+    """A check can fail on a commit that already had its ci event — a re-run, or a status main's
+    own changes re-post — and the worker must still hear of it."""
+
+    def events(self, rollup, sent=()):
+        w = world([card("a", [todo()])], prs=[gh_pr(7, rollup)], branches=["feature/factory-a-s1"],
+                  workers={"factory-a-s1": "busy"}, sent=sent)
+        return [a for a in decide(w) if isinstance(a, SendEvent)]
+
+    def test_a_new_failure_on_an_already_reported_commit_is_sent(self):
+        first = self.events([SMOKE_FAILED])[0].key
+        later = self.events([SMOKE_PASSED, HEADS_FAILED], sent=[first, "7:ci-passed:86e5:2026-10-28T15:00:00Z"])
+        self.assertEqual([e.text for e in later],
+                         ["Factory event: ci-failed PR #7 (migration-heads) https://github.com/o/r/pull/7/checks"])
+
+    def test_the_same_failure_is_sent_once(self):
+        first = self.events([SMOKE_FAILED])[0].key
+        self.assertEqual(self.events([SMOKE_FAILED], sent=[first]), [])
+
+    def test_a_rerun_that_fails_again_is_sent_again(self):
+        first = self.events([SMOKE_FAILED])[0].key
+        rerun = {**SMOKE_FAILED, "completedAt": "2026-10-28T16:00:00Z"}
+        self.assertEqual(len(self.events([rerun], sent=[first])), 1)
+
+    def test_green_again_after_a_rerun_is_sent(self):
+        early = {**SMOKE_PASSED, "completedAt": "2026-10-28T13:00:00Z"}
+        sent = [self.events([early])[0].key, self.events([SMOKE_FAILED])[0].key]
+        self.assertEqual([e.text for e in self.events([SMOKE_PASSED], sent=sent)],
+                         ["Factory event: ci-passed PR #7"])
 
 
 def labelled(number, head, state="OPEN", base_labels=("factory",)):

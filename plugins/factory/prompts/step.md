@@ -28,7 +28,9 @@ for you. They are part of this task, not chatter: act on each as below. A duplic
 you already handled is ignored.
 
 - `merged PR #n` → *Handoff*.
-- `ci-failed PR #n <url>` → if review mode is off: read the failure, fix it, push; after a second
+- `ci-failed PR #n (<checks>) <url>` → may come again for the same commit, when a check fails
+  anew without a push (a re-run, or a status main re-posts, like two migration heads). If review
+  mode is off: read the failure, fix it, push; after a second
   failed fix of the same failure, ping. While an adopted PR waits at its architecture gate, just
   note it — the developer decides the shape first. If review mode is on: queue the fix
   (`review-mode.sh add "…"`) and ping — leaving review mode is the developer's call.

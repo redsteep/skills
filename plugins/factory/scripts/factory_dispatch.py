@@ -55,6 +55,8 @@ class PR:
     url: str = ""
     labels: tuple[str, ...] = ()
     created: datetime | None = None
+    failing: tuple[str, ...] = ()    # names of the checks that failed on the head commit
+    ci_round: str = ""               # which run of the checks `ci` describes (see _ci)
 
 
 @dataclass(frozen=True)
@@ -246,10 +248,16 @@ def pr_events(pr: PR) -> list[tuple[str, str]]:
     elif pr.state == "CLOSED":
         out.append((f"{pr.number}:closed", f"pr-closed PR #{pr.number} — the step is dropped"))
     else:
+        # The key names the round of checks, not only the commit: a check can fail on a commit
+        # that already had its event -- a re-run, or a status main's own changes re-post (two
+        # migration heads) -- and must still reach the worker.
+        round_ = f":{pr.ci_round}" if pr.ci_round else ""
         if pr.ci == "failed":
-            out.append((f"{pr.number}:ci-failed:{pr.head_sha}", f"ci-failed PR #{pr.number} {pr.url}/checks"))
+            which = f" ({', '.join(pr.failing)})" if pr.failing else ""
+            out.append((f"{pr.number}:ci-failed:{pr.head_sha}{round_}",
+                        f"ci-failed PR #{pr.number}{which} {pr.url}/checks"))
         elif pr.ci == "passed":
-            out.append((f"{pr.number}:ci-passed:{pr.head_sha}", f"ci-passed PR #{pr.number}"))
+            out.append((f"{pr.number}:ci-passed:{pr.head_sha}{round_}", f"ci-passed PR #{pr.number}"))
         if pr.conflicting:
             out.append((f"{pr.number}:conflict:{pr.head_sha}", f"conflict PR #{pr.number} — conflicts with origin/main"))
     return out
@@ -442,25 +450,37 @@ def load_issues(repo: Path, label: str, decision_label: str = "") -> tuple[Card,
                  for i in sorted(issues, key=lambda i: i["number"]))
 
 
-def _ci(rollup: list[dict]) -> str | None:
+_FAILED = {"FAILURE", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "ERROR", "STARTUP_FAILURE"}
+
+
+def _ci(rollup: list[dict]) -> tuple[str | None, tuple[str, ...], str]:
+    """(state, failing check names, round). The round tells one run of the checks from another
+    on the same commit: the failing checks with when each finished, or, once all passed, when
+    the last one did."""
     if not rollup:
-        return None
-    failed = {"FAILURE", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "ERROR", "STARTUP_FAILURE"}
-    if any((r.get("conclusion") or r.get("state")) in failed for r in rollup):
-        return "failed"
+        return None, (), ""
+    def name(r: dict) -> str:
+        return r.get("name") or r.get("context") or "?"
+    def at(r: dict) -> str:
+        return r.get("completedAt") or r.get("createdAt") or r.get("startedAt") or ""
+    failed = sorted((r for r in rollup if (r.get("conclusion") or r.get("state")) in _FAILED), key=name)
+    if failed:
+        return "failed", tuple(name(r) for r in failed), ",".join(f"{name(r)}@{at(r)}" for r in failed)
     if any(r.get("status") not in (None, "COMPLETED") or r.get("state") == "PENDING" for r in rollup):
-        return "pending"
-    return "passed"
+        return "pending", (), ""
+    return "passed", (), max(at(r) for r in rollup)
 
 
 _PR_FIELDS = "number,state,headRefName,headRefOid,statusCheckRollup,mergeable,url,labels,createdAt"
 
 
 def _pr(p: dict) -> PR:
+    ci, failing, round_ = _ci(p.get("statusCheckRollup") or [])
     return PR(p["number"], p["state"], p["headRefName"], p["headRefOid"],
-              _ci(p.get("statusCheckRollup") or []), p.get("mergeable") == "CONFLICTING", p["url"],
+              ci, p.get("mergeable") == "CONFLICTING", p["url"],
               tuple(l["name"] for l in p.get("labels") or []),
-              datetime.fromisoformat(p["createdAt"].replace("Z", "+00:00")) if p.get("createdAt") else None)
+              datetime.fromisoformat(p["createdAt"].replace("Z", "+00:00")) if p.get("createdAt") else None,
+              failing, round_)
 
 
 def load_prs(repo: Path, label: str, adopted: set[int]) -> tuple[PR, ...]:
