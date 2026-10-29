@@ -72,8 +72,8 @@ you're away, so the worker keeps the PR healthy itself — rebases on a conflict
 migration head, fixes red CI — and tells you what it changed. Your first message in its
 conversation turns review mode on (a `UserPromptSubmit` hook): what you read stays put, and your
 change requests queue for your go. After `Review idle` minutes (profile `## Settings`, default 15)
-with nothing from you, the dispatcher turns it off again and the worker does the upkeep it held —
-unless you queued changes, which wait for you.
+with nothing from you, the dispatcher turns it off again: your leaving counts as your go, so the
+worker applies what you queued and does the upkeep it held, then pings what changed.
 
 A worker is a normal Claude Code session: open it in the Claude app (Code → its name, or the link
 in the Slack DM) and type. Events from the dispatcher start with `Factory event:`.

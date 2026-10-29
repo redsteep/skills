@@ -6,7 +6,7 @@ Review mode protects a conversation the developer is in: what they read stays pu
 ask for is queued, not done mid-read. While they are away there is nothing to protect, so a
 worker opens its PR without it and keeps the PR healthy on its own (conflicts, migration heads,
 red CI). Their first message turns it on; the dispatcher turns it off again after `Review idle`
-minutes of silence, unless they queued changes, which wait for their go.
+minutes of silence, and the worker applies what they queued as if they had said go.
 
 Only a message the developer typed counts: not a peer session's message, a task notice, or the
 dispatcher's start prompt. Applies only inside a factory worker (env FACTORY_WORKER), and only

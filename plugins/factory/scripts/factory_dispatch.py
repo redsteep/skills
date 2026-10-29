@@ -114,7 +114,7 @@ class World:
     issue_daily: int | None = None   # issues started in any 24 hours; None = no cap
     now: datetime | None = None      # the dispatch's clock, for issue_daily and review_idle
     presence: dict = field(default_factory=dict)  # worker → when the developer last typed there
-    reviews: dict = field(default_factory=dict)   # branch in review mode → requests still queued
+    reviews: dict = field(default_factory=dict)   # branch in review mode → requests queued
     review_idle: timedelta = timedelta(minutes=15)  # silence after which the developer has left
 
 
@@ -373,15 +373,15 @@ def decide(world: World) -> list:
 
 def _review_idle(step: Step, prs: list, world: World) -> list:
     """Review mode is for the developer's presence: it goes on with their first message in the
-    worker's conversation (a hook) and off once they have said nothing there for review_idle --
-    unless they queued changes, which wait for their go. Off, the worker keeps its PR healthy."""
+    worker's conversation (a hook) and off once they have said nothing there for review_idle.
+    Leaving is their go: the worker applies what they queued and does the upkeep it held."""
     if world.now is None:
         return []
     seen = world.presence.get(step.worker)
     if seen is not None and world.now - seen < world.review_idle:
         return []
     branches = dict.fromkeys([step.branch, *(p.head for p in prs if p.state == "OPEN")])
-    return [ReviewIdle(step.worker, b) for b in branches if world.reviews.get(b) == 0]
+    return [ReviewIdle(step.worker, b) for b in branches if b in world.reviews]
 
 
 def _issues_started_since(world: World, all_steps: dict, since: datetime) -> int:
@@ -634,11 +634,13 @@ class Executor:
 
     def _ReviewIdle(self, a: ReviewIdle) -> None:
         script = PLUGIN_ROOT.parent / "review-mode/scripts/review-mode.sh"
-        run(["bash", str(script), "off", "-b", a.branch], cwd=self.repo,
-            env={"CLAUDE_PROJECT_DIR": str(self.repo)})
+        out = run(["bash", str(script), "off", "-b", a.branch], cwd=self.repo,
+                  env={"CLAUDE_PROJECT_DIR": str(self.repo)})
+        moved = re.search(r"queue moved to (\S+)", out)
+        queued = f"; apply the changes they queued, listed in {moved[1]}," if moved else ""
         self._SendEvent(SendEvent(a.worker, f"review-idle:{a.branch}:{datetime.now(timezone.utc).isoformat()}",
                                   f"Factory event: review-idle {a.branch} — the developer has said nothing here "
-                                  "for a while, so review mode is off: do the upkeep you held"))
+                                  f"for a while, so review mode is off{queued} and do the upkeep you held"))
 
     def _MarkSent(self, a: MarkSent) -> None:
         with sent_store() as sent:

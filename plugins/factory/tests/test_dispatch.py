@@ -502,7 +502,7 @@ class CarvedAdoptedPR(unittest.TestCase):
 
 class ReviewPresence(unittest.TestCase):
     """Review mode lasts while the developer is in the worker's conversation: 15 minutes of
-    silence there turns it off, unless changes they asked for wait in the queue."""
+    silence there turns it off, and the worker then applies whatever they queued."""
 
     BRANCH = "feature/factory-a-s1"
 
@@ -521,8 +521,8 @@ class ReviewPresence(unittest.TestCase):
     def test_a_review_the_developer_never_spoke_in_ends(self):
         self.assertEqual(self.idle({}, {self.BRANCH: 0}), [ReviewIdle("factory-a-s1", self.BRANCH)])
 
-    def test_queued_changes_keep_the_review_on(self):
-        self.assertEqual(self.idle({}, {self.BRANCH: 2}), [])
+    def test_a_review_with_queued_changes_ends_too(self):
+        self.assertEqual(self.idle({}, {self.BRANCH: 2}), [ReviewIdle("factory-a-s1", self.BRANCH)])
 
     def test_no_review_on_nothing_to_end(self):
         self.assertEqual(self.idle({}, {}), [])

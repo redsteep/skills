@@ -38,11 +38,13 @@ you already handled is ignored.
   what needs it: a migration head, generated code) and `git push --force-with-lease`; on an
   adopted PR's branch — someone else's — merge `origin/{base}` in instead and push.
 - `review-idle <branch>` → the developer left the review; the dispatcher turned review mode off.
-  Do the upkeep you held, then end your turn.
+  Treat it as their go: apply the changes they queued (the event names the file the queue moved
+  to) the way their go-ahead would — re-run pre-pr-review, push — and do the upkeep you held.
+  Leave review mode off; ping `"PR #<n> updated while you were away — <what changed>"`.
 
 **Upkeep and review mode.** Review mode means the developer is here, reading: it goes on with
 their first message in this conversation once your PR is open, and the dispatcher turns it off
-after a stretch of silence, unless they queued changes (those wait for their go). Upkeep — a
+after a stretch of silence (their queued changes then get applied as on a go). Upkeep — a
 conflict, a red check, a migration head — is yours to do **while review mode is off**: fix, push,
 then `{ping} "PR #<n> updated — <what changed>"`. While it is on, don't change what they are
 reading: say in one line what needs doing and hold it until their go or `review-idle`. Never
