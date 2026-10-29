@@ -22,7 +22,7 @@ import sys
 import time
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -58,6 +58,8 @@ class PR:
     created: datetime | None = None
     failing: tuple[str, ...] = ()    # names of the checks that failed on the head commit
     ci_round: str = ""               # which run of the checks `ci` describes (see _ci)
+    merge_sha: str = ""              # a merged PR's commit on the base branch
+    base_ci: tuple = (None, (), "")  # _ci of that commit: CI on the base branch after the merge
 
 
 @dataclass(frozen=True)
@@ -256,6 +258,13 @@ def pr_events(pr: PR) -> list[tuple[str, str]]:
     out = []
     if pr.state == "MERGED":
         out.append((f"{pr.number}:merged", f"merged PR #{pr.number} — run the handoff"))
+        # CI on the base branch after the merge is the handoff's to watch, but a watcher that
+        # stopped or looked at another run misses it -- and a red run skips the deploy.
+        ci, failing, round_ = pr.base_ci
+        if ci == "failed":
+            out.append((f"{pr.number}:base-ci-failed:{pr.merge_sha}:{round_}",
+                        f"base-ci-failed PR #{pr.number} — CI on the merge commit {pr.merge_sha[:8]} failed "
+                        f"({', '.join(failing)}), so it was not deployed"))
     elif pr.state == "CLOSED":
         out.append((f"{pr.number}:closed", f"pr-closed PR #{pr.number} — the step is dropped"))
     else:
@@ -496,7 +505,8 @@ def _ci(rollup: list[dict]) -> tuple[str | None, tuple[str, ...], str]:
     return "passed", (), max(at(r) for r in rollup)
 
 
-_PR_FIELDS = "number,state,headRefName,headRefOid,statusCheckRollup,mergeable,url,labels,createdAt"
+_PR_FIELDS = "number,state,headRefName,headRefOid,statusCheckRollup,mergeable,url,labels,createdAt,mergeCommit,mergedAt"
+BASE_CI_WINDOW = timedelta(days=2)   # merges whose base-branch CI is still read
 
 
 def _pr(p: dict) -> PR:
@@ -505,17 +515,34 @@ def _pr(p: dict) -> PR:
               ci, p.get("mergeable") == "CONFLICTING", p["url"],
               tuple(l["name"] for l in p.get("labels") or []),
               datetime.fromisoformat(p["createdAt"].replace("Z", "+00:00")) if p.get("createdAt") else None,
-              failing, round_)
+              failing, round_, (p.get("mergeCommit") or {}).get("oid", ""))
+
+
+def _base_ci(repo: Path, sha: str) -> tuple:
+    """CI on a merge commit, read like a PR's rollup: its check runs on the base branch."""
+    runs = json.loads(run(["gh", "api", f"repos/{{owner}}/{{repo}}/commits/{sha}/check-runs",
+                           "--jq", "[.check_runs[]|{name, status: (.status|ascii_upcase), "
+                           "conclusion: ((.conclusion // \"\")|ascii_upcase), completedAt: .completed_at}]"],
+                          cwd=repo) or "[]")
+    return _ci(runs)
 
 
 def load_prs(repo: Path, label: str, adopted: set[int]) -> tuple[PR, ...]:
     """Factory-labelled PRs, plus the PRs cards adopt that the factory has not labelled yet."""
     out = run(["gh", "pr", "list", "--label", label, "--state", "all", "--limit", "200",
                "--json", _PR_FIELDS], cwd=repo)
-    prs = {p["number"]: _pr(p) for p in json.loads(out)}
-    for number in adopted - prs.keys():
-        prs[number] = _pr(json.loads(run(["gh", "pr", "view", str(number), "--json", _PR_FIELDS], cwd=repo)))
-    return tuple(prs.values())
+    raw = {p["number"]: p for p in json.loads(out)}
+    for number in adopted - raw.keys():
+        raw[number] = json.loads(run(["gh", "pr", "view", str(number), "--json", _PR_FIELDS], cwd=repo))
+    since = datetime.now(timezone.utc) - BASE_CI_WINDOW
+    prs = []
+    for p in raw.values():
+        pr = _pr(p)
+        merged = p.get("mergedAt")
+        if pr.merge_sha and merged and datetime.fromisoformat(merged.replace("Z", "+00:00")) >= since:
+            pr = replace(pr, base_ci=_base_ci(repo, pr.merge_sha))
+        prs.append(pr)
+    return tuple(prs)
 
 
 def load_branches(repo: Path) -> frozenset[str]:
@@ -694,11 +721,12 @@ class Executor:
         mark_launched(name)
 
 
-# Shared runner rules the factory replaces: the gate hook decides merges and force-pushes, and an
-# issue's worker closes its issue after the beta check. An issue's worker also writes its step
-# list into the issue body and ticks it, and reports a shipped step in a comment.
-NOT_DENIED = ("Bash(gh pr merge", "Bash(gh issue close", "Bash(git push --force")
-NOT_DENIED_TO_ISSUES = ("Bash(gh issue edit", "Bash(gh issue comment")
+# Shared runner rules the factory replaces: the gate hook decides merges and force-pushes, an
+# issue's worker closes its issue after the beta check, and any worker notes a test that flaked
+# again on the issue already open for it. An issue's worker also writes its step list into the
+# issue body and ticks it, and reports a shipped step in a comment.
+NOT_DENIED = ("Bash(gh pr merge", "Bash(gh issue close", "Bash(git push --force", "Bash(gh issue comment")
+NOT_DENIED_TO_ISSUES = ("Bash(gh issue edit",)
 
 
 def deny_list(profile: Profile, issue: bool = False) -> list[str]:
@@ -751,6 +779,7 @@ def render_prompt(template: str, repo: Path, profile: Profile, name: str, card: 
         "source": (f'GitHub issue #{card.issue} "{card.name}" ({card.url})' if card.issue is not None
                    else f'the Trello card "{card.name}" ({card.url}, card id `{card.id}`)'),
         "issue_label": profile.get("Issues", "Label", "") or "",
+        "flaky_label": profile.get("Settings", "Flaky label", "") or "",
         "issue_decision_label": profile.get("Issues", "Needs decision", "") or "",
         "issue_handoff": profile.get("Issues", "Handoff", "") or "",
         "issue_off_limits": profile.text("Issues", "Off limits", "nothing beyond the ground rules")

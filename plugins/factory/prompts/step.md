@@ -33,7 +33,20 @@ you already handled is ignored.
   anew without a push (a re-run, or a status main re-posts, like two migration heads). Upkeep:
   read the failure, fix it, push; after a second failed fix of the same failure, ping. While an
   adopted PR waits at its architecture gate, just note it — the developer decides the shape first.
+- `base-ci-failed PR #n — … (<checks>) …` → CI on `{base}` failed on your merge commit, so it was
+  not deployed. Your *Handoff* waits on it: read the failure. Caused by your change → a fix PR as
+  in *Handoff* step 4. Flaky → as below, and keep waiting for the deploy.
 - `ci-passed PR #n` → note it; act only if you were waiting for it.
+
+**A flaky test** — one that fails with nothing in the change to explain it (a timeout, a race, a
+test of code the change does not touch), on your PR or on `{base}` after your merge: re-run the
+failed jobs once (`gh run rerun <run id> --failed`), then record it — every time, also when the
+re-run passes. When the profile names a `Flaky label` (here: `{flaky_label}`), look for an open
+issue with it naming that test (`gh issue list --label {flaky_label} --search "<test name>"`):
+comment there (`gh issue comment <n> --body "Flaked again: <run url>"`), or, with none, open one
+— `gh issue create --label {flaky_label} --title "Flaky test: <test name>"`, the body giving the
+test's file, the error, and the run's URL. No label in the profile: put it in your next ping.
+If the re-run fails the same way, it is not flaky: treat it as a real failure.
 - `conflict PR #n` → upkeep: on your own factory branch, rebase on `origin/{base}` (regenerate
   what needs it: a migration head, generated code) and `git push --force-with-lease`; on an
   adopted PR's branch — someone else's — merge `origin/{base}` in instead and push.

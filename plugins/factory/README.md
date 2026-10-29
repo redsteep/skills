@@ -75,6 +75,12 @@ change requests queue for your go. After `Review idle` minutes (profile `## Sett
 with nothing from you, the dispatcher turns it off again: your leaving counts as your go, so the
 worker applies what you queued and does the upkeep it held, then pings what changed.
 
+**CI on main after a merge.** The dispatcher also reads CI on each merged PR's merge commit (for
+two days) and sends its worker `base-ci-failed` when it goes red — a red run skips the deploy the
+handoff waits for. A test the worker finds **flaky**, there or on its own PR, gets one re-run of
+the failed jobs and is recorded every time: an issue with the profile's `Flaky label`, or a
+comment on the one already open for that test.
+
 A worker is a normal Claude Code session: open it in the Claude app (Code → its name, or the link
 in the Slack DM) and type. Events from the dispatcher start with `Factory event:`.
 

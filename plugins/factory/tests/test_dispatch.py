@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -267,12 +268,15 @@ class Issues(unittest.TestCase):
         self.assertNotIn("mcp__trello", deny_list(profile))
         self.assertFalse([r for r in deny_list(profile, issue=True) if r.startswith("Bash(gh issue close")])
 
-    def test_only_an_issue_worker_may_edit_and_comment_on_issues(self):
+    def test_only_an_issue_worker_may_edit_issues(self):
         # it writes its step list into the body and ticks it; a card's worker has no issue to edit
         profile = Profile("## Issues\n- **Label:** `ok`\n")
-        edits = ("Bash(gh issue edit", "Bash(gh issue comment")
-        self.assertFalse([r for r in deny_list(profile, issue=True) if r.startswith(edits)])
-        self.assertEqual(len([r for r in deny_list(profile) if r.startswith(edits)]), 2)
+        self.assertFalse([r for r in deny_list(profile, issue=True) if r.startswith("Bash(gh issue edit")])
+        self.assertEqual([r for r in deny_list(profile) if r.startswith("Bash(gh issue edit")], ["Bash(gh issue edit:*)"])
+
+    def test_every_worker_may_comment_on_issues(self):
+        # a test that flaked again is noted on the issue already open for it
+        self.assertFalse([r for r in deny_list(Profile("")) if r.startswith("Bash(gh issue comment")])
 
 
 class IssueSteps(unittest.TestCase):
@@ -498,6 +502,32 @@ class CarvedAdoptedPR(unittest.TestCase):
                   prs=[labelled(20, "feat/x-refactor", "MERGED"), labelled(21, "feat/x-migration", "MERGED"),
                        labelled(12, "feat/x")])
         self.assertEqual(started(decide(w)), [("a", 4, IN_PROGRESS)])
+
+
+class BaseBranchCi(unittest.TestCase):
+    """CI on the base branch after a merge reaches the step's worker: a red run skips the deploy
+    its handoff waits for."""
+
+    def merged(self, base_ci, sent=()):
+        p = replace(pr(7, "feature/factory-a-s1", "MERGED"), merge_sha="5d589aea0000", base_ci=base_ci)
+        w = world([card("a", [todo()])], prs=[p], workers={"factory-a-s1": "busy"},
+                  sent=["7:merged", *sent])
+        return [a for a in decide(w) if isinstance(a, SendEvent)]
+
+    def test_a_failure_on_the_merge_commit_is_sent(self):
+        self.assertEqual([e.text for e in self.merged(("failed", ("Frontend Tests (1)",), "r1"))],
+                         ["Factory event: base-ci-failed PR #7 — CI on the merge commit 5d589aea failed "
+                          "(Frontend Tests (1)), so it was not deployed"])
+
+    def test_the_same_failure_is_sent_once_and_a_rerun_failing_again_anew(self):
+        first = self.merged(("failed", ("Frontend Tests (1)",), "r1"))[0].key
+        self.assertEqual(self.merged(("failed", ("Frontend Tests (1)",), "r1"), sent=[first]), [])
+        self.assertEqual(len(self.merged(("failed", ("Frontend Tests (1)",), "r2"), sent=[first])), 1)
+
+    def test_green_or_pending_base_ci_sends_nothing(self):
+        for ci in (("passed", (), "t"), ("pending", (), ""), (None, (), "")):
+            with self.subTest(ci=ci[0]):
+                self.assertEqual(self.merged(ci), [])
 
 
 class ReviewPresence(unittest.TestCase):
