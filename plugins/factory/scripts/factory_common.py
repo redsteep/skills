@@ -182,7 +182,7 @@ def list_agents() -> list[dict]:
 def worker_view(agents: list[dict], seen: dict[str, datetime], now: datetime
                 ) -> tuple[dict[str, dict], dict[str, datetime]]:
     """Workers by name, and when each was last seen alive. A session with a process keeps its
-    status; one seen alive within WORKER_GRACE but missing or without a process now reads
+    status (`idle` once its turn has ended); one seen alive within WORKER_GRACE but missing or without a process now reads
     `restarting`; one listed without a process beyond that reads `dead`."""
     listed: dict[str, dict] = {}
     for a in filter(is_worker, agents):
@@ -191,6 +191,11 @@ def worker_view(agents: list[dict], seen: dict[str, datetime], now: datetime
     workers, fresh = {}, {}
     for name, a in listed.items():
         if a.get("pid"):
+            # Since Claude Code 2.1.3xx a background session with a process always reads `busy`;
+            # whether it is mid-turn is its `state`. A finished turn (`done`) or one waiting on the
+            # developer (`blocked`) is what `idle` used to mean.
+            if a.get("state") in ("done", "blocked"):
+                a = {**a, "status": "idle"}
             workers[name], fresh[name] = a, now
     for name, at in seen.items():
         if name not in workers and at >= now - WORKER_GRACE:

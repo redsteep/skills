@@ -62,6 +62,16 @@ class WorkerView(unittest.TestCase):
         workers, seen = worker_view([agent("factory-a-s1", pid=1, status="idle")], {}, NOW)
         self.assertEqual((statuses(workers), seen), ({"factory-a-s1": "idle"}, {"factory-a-s1": NOW}))
 
+    def test_a_busy_session_whose_turn_ended_reads_idle(self):
+        for state in ("done", "blocked"):
+            with self.subTest(state=state):
+                workers, _ = worker_view([{**agent("factory-a-s1", pid=1, status="busy"), "state": state}], {}, NOW)
+                self.assertEqual(statuses(workers), {"factory-a-s1": "idle"})
+
+    def test_a_session_mid_turn_stays_busy(self):
+        workers, _ = worker_view([{**agent("factory-a-s1", pid=1, status="busy"), "state": "working"}], {}, NOW)
+        self.assertEqual(statuses(workers), {"factory-a-s1": "busy"})
+
     def test_a_session_without_a_process_never_seen_alive_is_dead(self):
         workers, _ = worker_view([agent("factory-a-s1")], {}, NOW)
         self.assertEqual(statuses(workers), {"factory-a-s1": "dead"})
