@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import hashlib
 import json
 import os
 import re
@@ -30,13 +31,18 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from factory_common import (  # noqa: E402
     PAUSE_FILE, STATE_DIR, Profile, issue_short, last_developer_message, list_agents, live_workers,
-    load_repo_secrets, mark_launched, reviews_on,
+    load_repo_secrets, mark_launched, record_title, reviews_on,
     parse_worker_name, run,
     sent_store, split_name, step_branch, step_name,
 )
 
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent
 VERSION = json.loads((PLUGIN_ROOT / ".claude-plugin/plugin.json").read_text())["version"]
+# What a running worker's instructions are made of: they are re-sent when these change, not on
+# every version bump.
+INSTRUCTIONS = hashlib.sha256(b"".join(
+    p.read_bytes() for p in sorted((PLUGIN_ROOT / "prompts").glob("*.md")))
+    + Path(__file__).read_bytes()).hexdigest()[:12]
 DROPPED = "[dropped]"
 
 # Step states (spec: "Step state — the one predicate every rule reads").
@@ -119,7 +125,7 @@ class World:
     presence: dict = field(default_factory=dict)  # worker → when the developer last typed there
     reviews: dict = field(default_factory=dict)   # branch in review mode → requests queued
     review_idle: timedelta = timedelta(minutes=15)  # silence after which the developer has left
-    version: str = ""                # the factory's version: a worker started on an older one is re-instructed
+    version: str = ""                # what workers' instructions are made of: a worker started on others is re-instructed
 
 
 @dataclass(frozen=True)
@@ -698,12 +704,12 @@ class Executor:
 
     def _Reinstruct(self, a: Reinstruct) -> None:
         s = a.step
-        path = STATE_DIR / "instructions" / f"{s.worker}-{VERSION}.md"
+        path = STATE_DIR / "instructions" / f"{s.worker}-{VERSION}-{INSTRUCTIONS}.md"
         path.parent.mkdir(parents=True, exist_ok=True)
         total = len(s.card.items or ())
         path.write_text(render_prompt("step.md", self.repo, self.profile, s.worker, card=s.card, step=s, total=total))
         self._SendEvent(SendEvent(
-            s.worker, instructions_key(s.worker, VERSION),
+            s.worker, instructions_key(s.worker, INSTRUCTIONS),
             f"Factory event: instructions updated to factory {VERSION} — read {path}: it replaces the "
             "instructions you started with. Carry on from where you are, under the new ones. Hooks the "
             "update added are not active in this session; scripts you call already run the new code."))
@@ -760,10 +766,13 @@ class Executor:
         if shutil.which("systemd-run"):
             cmd = ["systemd-run", "--user", "--scope", "--quiet", "--collect",
                    f"--unit=factory-launch-{name}-{int(time.time())}", *cmd]
-        run(cmd, cwd=cwd, env={"FACTORY_WORKER": name, "FACTORY_REPO": str(self.repo), "FACTORY_TITLE": title})
+        # FACTORY_WORKER only says "a factory worker" to the hooks: the session inherits the env of
+        # the `--bg` daemon, so its value is whichever worker started the daemon, not this one.
+        run(cmd, cwd=cwd, env={"FACTORY_WORKER": name, "FACTORY_REPO": str(self.repo)})
         mark_launched(name)
         with sent_store() as sent:  # started on this version: nothing to re-instruct
-            sent.add(instructions_key(name, VERSION))
+            sent.add(instructions_key(name, INSTRUCTIONS))
+        record_title(name, title)
 
 
 # Shared runner rules the factory replaces: the gate hook decides merges and force-pushes, and
@@ -841,7 +850,9 @@ def render_prompt(template: str, repo: Path, profile: Profile, name: str, card: 
         "spec_template": profile.get("Repo", "Spec template", "") or "(none — use the repo's usual spec shape)",
         "specs_dir": profile.get("Repo", "Specs", "docs") or "docs",
         "handoff_skill": profile.get("Repo", "Handoff skill", "") or "",
-        "ping": shlex.quote(str(PLUGIN_ROOT / "scripts/factory-ping")),
+        # Named here, not left to the env: `claude --bg` sessions inherit the env of the daemon,
+        # which the first launch started -- every later worker read that worker's FACTORY_WORKER.
+        "ping": f'{shlex.quote(str(PLUGIN_ROOT / "scripts/factory-ping"))} --worker {name}',
         "lock": shlex.quote(str(PLUGIN_ROOT / "scripts/factory-lock")),
     }
     if "{step_prompt}" in text:
@@ -896,7 +907,7 @@ def main() -> int:
                   for name, info in workers.items() if info.get("pid")},
         reviews=reviews_on(repo),
         review_idle=timedelta(minutes=int(profile.get("Settings", "Review idle", "15"))),
-        version=VERSION,
+        version=INSTRUCTIONS,
     )
     execute = Executor(repo, profile, dry_run=args.dry_run)
     failures = 0

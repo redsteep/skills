@@ -63,3 +63,5 @@ class Rendering(unittest.TestCase):
                 text = render_prompt(template, Path("/repo"), Profile(""), "factory-i7-s1", card=card, step=step,
                                      total=1, recovered="in-progress")
                 self.assertEqual(re.findall(r"\{[a-z_]+\}", text), [])
+                if template != "split.md":
+                    self.assertIn("factory-ping --worker factory-i7-s1", text)

@@ -286,3 +286,17 @@ def reviews_on(repo: Path) -> dict[str, int]:
         queue = marker.parent / "queue.md"
         reviews[branch] = queue.read_text().count("- [ ]") if queue.is_file() else 0
     return reviews
+
+
+TITLES_FILE = STATE_DIR / "titles.json"
+
+
+def record_title(worker: str, title: str) -> None:
+    """What a worker works on, as the Claude app shows it: factory-ping reads it for the DM."""
+    titles = json.loads(TITLES_FILE.read_text()) if TITLES_FILE.is_file() else {}
+    titles[worker] = title
+    TITLES_FILE.write_text(json.dumps(titles, indent=1))
+
+
+def worker_title(worker: str) -> str | None:
+    return (json.loads(TITLES_FILE.read_text()) if TITLES_FILE.is_file() else {}).get(worker)

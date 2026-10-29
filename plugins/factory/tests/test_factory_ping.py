@@ -21,7 +21,7 @@ class Ping(unittest.TestCase):
     def setUp(self):
         for patcher in (mock.patch.object(factory_ping, "session_url", return_value=URL),
                         mock.patch.object(factory_ping, "pr_url", side_effect=lambda r: PR_URL if "PR #9" in r else None),
-                        mock.patch.dict(os.environ, {"FACTORY_TITLE": "Fix Campaign Reviewer Filters · 1/2"})):
+                        mock.patch.object(factory_ping, "worker_title", return_value="Fix Campaign Reviewer Filters · 1/2")):
             patcher.start()
             self.addCleanup(patcher.stop)
         state = Path(tempfile.mkdtemp(prefix="factory-ping-test-"))

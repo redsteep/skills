@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """factory-ping: a worker tells the developer it waits on them, or (`--done`) that it did
 something on its own -- a Slack DM from a bot. The message names what the worker works on (env
-FACTORY_TITLE, set by the dispatcher) and links the PR the reason names and the worker's
+the title the dispatcher recorded at launch) and links the PR the reason names and the worker's
 conversation. At most once per reason per step: a replacement worker with the same name does not
 ping the same reason again.
 
@@ -23,7 +23,9 @@ import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from factory_common import Profile, live_workers, load_repo_secrets, run, sent_store, transcript_of  # noqa: E402
+from factory_common import (  # noqa: E402
+    Profile, live_workers, load_repo_secrets, run, sent_store, transcript_of, worker_title,
+)
 
 FALLBACK_URL = "https://claude.ai/code"
 
@@ -63,7 +65,7 @@ def session_url(worker: str) -> str:
                 found += re.findall(r"https://claude\.ai/code/session_[A-Za-z0-9]+", line)
     if not found:
         found = re.findall(r"https://claude\.ai/code/session_[A-Za-z0-9]+",
-                           run(["claude", "logs", agent["id"]], check=False))
+                           run(["claude", "logs", agent["id"]], check=False)) if agent.get("id") else []
     return found[-1] if found else FALLBACK_URL
 
 
@@ -84,7 +86,7 @@ def send(worker: str, reason: str, post, done: bool = False) -> bool:
     with sent_store() as sent:
         if key in sent:
             return False
-        title = os.environ.get("FACTORY_TITLE") or worker
+        title = worker_title(worker) or worker
         post(message(reason, title, session_url(worker), pr_url(reason), done))
         sent.add(key)
     return True
