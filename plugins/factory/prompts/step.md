@@ -21,7 +21,9 @@ read what was decided. Repo rules: {rules}. Profile: `{profile}`.
   to your own factory branch; an adopted PR's branch is someone else's — merge into it instead.
 - Nothing goes to anyone but the developer (Slack, Trello comments, card moves) without their
   explicit yes in this conversation — except the two Trello writes the handoff's step mode makes
-  on its own (the PR link, checking your item).
+  on its own (the PR link, checking your item). GitHub issues in this repo are the factory's own
+  bookkeeping, not messages: file, edit, comment on and close them where these instructions say
+  to (a flaky test, an issue already done or needing a decision, your step list) without asking.
 - Build only step {step_n}. The other items of the card's `Factory steps` checklist are context.
 
 ## Events
