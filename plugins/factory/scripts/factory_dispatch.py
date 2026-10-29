@@ -177,6 +177,13 @@ class ReviewIdle:
 
 
 @dataclass(frozen=True)
+class ReviewOff:
+    """A review with no PR left to review (it was closed): turn it off, silently -- the worker
+    handles the closed PR itself, and a marker left on would deny every edit of a redo."""
+    branch: str
+
+
+@dataclass(frozen=True)
 class Cleanup:
     worker: str | None               # live session to stop, if any
     branch: str | None               # step branch whose worktree + branch to remove
@@ -386,13 +393,15 @@ def _review_idle(step: Step, prs: list, world: World) -> list:
     """Review mode is for the developer's presence: it goes on with their first message in the
     worker's conversation (a hook) and off once they have said nothing there for review_idle.
     Leaving is their go: the worker applies what they queued and does the upkeep it held."""
+    open_heads = {p.head for p in prs if p.state == "OPEN"}
+    mine = [b for b in world.reviews if b == step.branch or b.startswith(step.fix_prefix)]
+    actions: list = [ReviewOff(b) for b in mine if b not in open_heads]
     if world.now is None:
-        return []
+        return actions
     seen = world.presence.get(step.worker)
     if seen is not None and world.now - seen < world.review_idle:
-        return []
-    branches = dict.fromkeys([step.branch, *(p.head for p in prs if p.state == "OPEN")])
-    return [ReviewIdle(step.worker, b) for b in branches if b in world.reviews]
+        return actions
+    return actions + [ReviewIdle(step.worker, b) for b in mine if b in open_heads]
 
 
 def _issues_started_since(world: World, all_steps: dict, since: datetime) -> int:
@@ -670,6 +679,10 @@ class Executor:
         self._SendEvent(SendEvent(a.worker, f"review-idle:{a.branch}:{datetime.now(timezone.utc).isoformat()}",
                                   f"Factory event: review-idle {a.branch} — the developer has said nothing here "
                                   f"for a while, so review mode is off{queued} and do the upkeep you held"))
+
+    def _ReviewOff(self, a: ReviewOff) -> None:
+        run(["bash", str(PLUGIN_ROOT.parent / "review-mode/scripts/review-mode.sh"), "off", "-b", a.branch],
+            cwd=self.repo, env={"CLAUDE_PROJECT_DIR": str(self.repo)})
 
     def _MarkSent(self, a: MarkSent) -> None:
         with sent_store() as sent:

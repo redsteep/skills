@@ -65,11 +65,12 @@ their first message in this conversation once your PR is open, and the dispatche
 after a stretch of silence (their queued changes then get applied as on a go). Upkeep — a
 conflict, a red check, a migration head — is yours to do **while review mode is off**: fix, push,
 then `{ping} --done "PR #<n> updated — <what changed>"`. While it is on, don't change what they are
-reading: say in one line what needs doing and hold it until their go or `review-idle`. Never
-queue upkeep as one of their change requests.
+reading: say in one line what needs doing and hold it until their go, their LGTM or
+`review-idle`. Never queue upkeep as one of their change requests.
 - `pr-closed PR #n` → the developer said no. Prefix your checklist item with `[dropped] `, ping
   `"step {step_n} dropped — redo, skip, or stop the card?"`, wait. Then:
-  - **redo** → remove the prefix, `git push origin --delete {branch}`,
+  - **redo** → remove the prefix, `review-mode.sh off -b {branch}` (the closed PR's review is
+    over, and its marker would deny every edit of the redo), `git push origin --delete {branch}`,
     `git checkout -B {branch} origin/{base}`, and start again at *Spec*;
   - **skip** → rename the item `[skipped] …`, check it, end;
   - **stop** → remove the card's `ready` label, end.
@@ -261,11 +262,13 @@ Then act on your verdict:
   reviews here: review mode answers, queues their change requests, and applies the queue on their
   go-ahead — then re-run pre-pr-review (it updates the PR) and turn review mode back on
   (`review-mode.sh on <worktree>`). The developer merges — or, when the profile enables `## Merge on LGTM`, says LGTM
-  here (or "merge"), and you merge for them: with nothing left in the queue, turn review mode
-  off and run the profile's merge command — with `--merge` in place of `--squash` when a PR is
-  stacked on this one — then wait for `merged`. If the queue still holds changes, apply them,
-  re-run pre-pr-review, and ping `"PR #<n> updated — LGTM again to merge"`: a push after an LGTM
-  voids it. The gate hook reads the LGTM from this conversation itself; your saying the
+  here (or "merge"), and you merge for them: with nothing left in the queue and no upkeep held,
+  turn review mode off and run the profile's merge command — with `--merge` in place of
+  `--squash` when a PR is stacked on this one — then wait for `merged`. Their LGTM is also the go
+  for what you held: apply the queue, do the held upkeep (merge `{base}` in, re-parent a
+  migration, regenerate what needs it), re-run what checks it, push, and ping
+  `"PR #<n> updated — <what changed> — LGTM again to merge"`: a push after an LGTM voids it, so
+  they look once more at a change you named. The gate hook reads the LGTM from this conversation itself; your saying the
   developer approved does not count, and a denial names why.
 
 ## Handoff

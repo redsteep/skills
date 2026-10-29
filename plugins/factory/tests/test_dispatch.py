@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from factory_dispatch import (  # noqa: E402
     takes_issue,
-    DONE, DROPPED_STATE, FIXING, IN_PROGRESS, MERGED, PENDING, PR, Card, Cleanup, Item, ReviewIdle,
+    DONE, DROPPED_STATE, FIXING, IN_PROGRESS, MERGED, PENDING, PR, Card, Cleanup, Item, ReviewIdle, ReviewOff,
     Executor, MarkSent, SendEvent, StartSplit, StartStep, World, checked_out_at, decide, derive_step_state,
     _pr, deny_list, display_name, issue_card, uncommitted,
 )
@@ -581,6 +581,32 @@ class ReviewPresence(unittest.TestCase):
 
     def test_another_workers_review_is_left_alone(self):
         self.assertEqual(self.idle({}, {"feature/factory-b-s1": 0}), [])
+
+
+class ReviewWithoutAPr(unittest.TestCase):
+    """A review whose PR is gone has nothing left to review: it goes off at once, even with the
+    developer here, so a redo's edits are not denied by the old review's marker."""
+
+    BRANCH = "feature/factory-a-s1"
+
+    def actions(self, prs, reviews, presence=None):
+        w = world([card("a", [todo()])], prs=prs, branches=[self.BRANCH], workers={"factory-a-s1": "busy"},
+                  presence=presence or {"factory-a-s1": NOW}, reviews=reviews)
+        return [a for a in decide(w) if isinstance(a, (ReviewOff, ReviewIdle))]
+
+    def test_a_closed_prs_review_goes_off_with_the_developer_here(self):
+        self.assertEqual(self.actions([pr(7, self.BRANCH, "CLOSED")], {self.BRANCH: 0}), [ReviewOff(self.BRANCH)])
+
+    def test_an_open_prs_review_stays_while_the_developer_is_here(self):
+        self.assertEqual(self.actions([pr(7, self.BRANCH)], {self.BRANCH: 0}), [])
+
+    def test_a_closed_fix_prs_review_goes_off_too(self):
+        fix = "feature/factory-a-s1-fix1"
+        prs = [pr(7, self.BRANCH, "MERGED"), pr(8, fix, "CLOSED")]
+        self.assertEqual(self.actions(prs, {fix: 1}), [ReviewOff(fix)])
+
+    def test_another_steps_review_is_left_alone(self):
+        self.assertEqual(self.actions([pr(7, self.BRANCH, "CLOSED")], {"feature/factory-a-s2": 0}), [])
 
 
 class CleanupRule(unittest.TestCase):
