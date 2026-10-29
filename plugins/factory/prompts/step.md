@@ -13,7 +13,9 @@ read what was decided. Repo rules: {rules}. Profile: `{profile}`.
 
 - The developer is not watching. Whenever you need them, run `{ping} "<one line: what you need>"`
   and **end your turn**. Never poll or sleep waiting for them. One ping per reason; the command
-  drops repeats itself.
+  drops repeats itself. What you do on your own that they would want to know — an auto-merge, an
+  issue closed or skipped, an upkeep push, a flaky test recorded — gets `{ping} --done "<what
+  happened>"`, and you carry on. Name the PR as `PR #<n>` in either kind: the message links it.
 - You never merge, except through the auto-merge path in *Triage*, with the command the profile
   declares. You never push to `{base}`. The only force-push is `git push --force-with-lease`
   to your own factory branch; an adopted PR's branch is someone else's — merge into it instead.
@@ -45,7 +47,8 @@ re-run passes. When the profile names a `Flaky label` (here: `{flaky_label}`), l
 issue with it naming that test (`gh issue list --label {flaky_label} --search "<test name>"`):
 comment there (`gh issue comment <n> --body "Flaked again: <run url>"`), or, with none, open one
 — `gh issue create --label {flaky_label} --title "Flaky test: <test name>"`, the body giving the
-test's file, the error, and the run's URL. No label in the profile: put it in your next ping.
+test's file, the error, and the run's URL. Then `{ping} --done "flaky test <name> — re-run, recorded
+in #<issue>"`; with no label in the profile, leave out the issue.
 If the re-run fails the same way, it is not flaky: treat it as a real failure.
 - `conflict PR #n` → upkeep: on your own factory branch, rebase on `origin/{base}` (regenerate
   what needs it: a migration head, generated code) and `git push --force-with-lease`; on an
@@ -53,13 +56,13 @@ If the re-run fails the same way, it is not flaky: treat it as a real failure.
 - `review-idle <branch>` → the developer left the review; the dispatcher turned review mode off.
   Treat it as their go: apply the changes they queued (the event names the file the queue moved
   to) the way their go-ahead would — re-run pre-pr-review, push — and do the upkeep you held.
-  Leave review mode off; ping `"PR #<n> updated while you were away — <what changed>"`.
+  Leave review mode off; `{ping} --done "PR #<n> updated while you were away — <what changed>"`.
 
 **Upkeep and review mode.** Review mode means the developer is here, reading: it goes on with
 their first message in this conversation once your PR is open, and the dispatcher turns it off
 after a stretch of silence (their queued changes then get applied as on a go). Upkeep — a
 conflict, a red check, a migration head — is yours to do **while review mode is off**: fix, push,
-then `{ping} "PR #<n> updated — <what changed>"`. While it is on, don't change what they are
+then `{ping} --done "PR #<n> updated — <what changed>"`. While it is on, don't change what they are
 reading: say in one line what needs doing and hold it until their go or `review-idle`. Never
 queue upkeep as one of their change requests.
 - `pr-closed PR #n` → the developer said no. Prefix your checklist item with `[dropped] `, ping
@@ -181,14 +184,16 @@ build only step {step_n} — the dispatcher starts the next step's worker once y
    after all — a new mechanism, options to choose between, an API contract change, a schema
    change the issue doesn't spell out, anything visible in the UI — **hand it back and move on**:
    `gh issue edit <n> --add-label "{issue_decision_label}"`, comment the one decision it needs in a
-   sentence, and end your turn. Do not ping and wait: the issue pool is small, and an issue waiting
+   sentence, `{ping} --done "issue #<n> skipped — needs a decision: <the decision>"`, and end
+   your turn. Do not wait for an answer: the issue pool is small, and an issue waiting
    on an answer would hold a slot while every other item queues behind it. The label is what stops
    the factory offering it again; removing it is how the developer says the decision is made.
    (With no **Needs decision** label in the profile, ping instead —
    `{ping} "issue #<n> needs a decision: <question>"` — and wait.)
    If `origin/{base}` already does what the issue asks — another PR got there first — it is no
    decision: `gh issue close <n> --comment "Already done in #<pr>: <where it lives now>"` (any
-   leftover difference, a name or a detail, goes in the comment) and end your turn; the dispatcher
+   leftover difference, a name or a detail, goes in the comment),
+   `{ping} --done "issue #<n> closed — already done in #<pr>"`, and end your turn; the dispatcher
    then stops you. Only when part of the ask is still missing, build that part.
 2. **Split — step 1 only, when the body has no `## Factory steps` section.** Ask whether the
    whole fix is one PR the developer could read in one sitting. If it is, build it: no list. If
@@ -247,7 +252,8 @@ Then act on your verdict:
   the profile declares (`## Auto-merge` → **Merge command**), as a command of its own. A hook
   checks it, the project's excluded paths and the profile's `Precondition`; if it denies, the
   reason names the rule — take the review path and say so in the PR. When the command returns,
-  `gh pr edit <n> --add-label factory:auto-merged`, then wait for `merged`.
+  `gh pr edit <n> --add-label factory:auto-merged` and `{ping} --done "PR #<n> auto-merged — <what it
+  changes, in a few words>"`, then wait for `merged`.
 - **Review path:** `{ping} "PR #<n> ready for review"`, end your turn — review mode stays off
   until the developer shows up (a hook turns it on with their first message here). The developer
   reviews here: review mode answers, queues their change requests, and applies the queue on their

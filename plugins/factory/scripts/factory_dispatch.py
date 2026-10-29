@@ -719,7 +719,7 @@ class Executor:
         if shutil.which("systemd-run"):
             cmd = ["systemd-run", "--user", "--scope", "--quiet", "--collect",
                    f"--unit=factory-launch-{name}-{int(time.time())}", *cmd]
-        run(cmd, cwd=cwd, env={"FACTORY_WORKER": name, "FACTORY_REPO": str(self.repo)})
+        run(cmd, cwd=cwd, env={"FACTORY_WORKER": name, "FACTORY_REPO": str(self.repo), "FACTORY_TITLE": title})
         mark_launched(name)
 
 

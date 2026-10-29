@@ -8,7 +8,10 @@ your review stays the bottleneck by design.
 
 You make the decisions only you can make, from the Claude app on your Mac or phone: each step's
 spec, each PR's review and merge, "test it manually first?", and every message to the requester.
-Whenever a step waits for you, its worker DMs you on Slack with a link to its conversation.
+Whenever a step waits for you, its worker DMs you on Slack (👋 *Needs you*); when it does something
+on its own you'd want to know — an auto-merge, an issue closed as already done or skipped for a
+decision, an upkeep push, a flaky test recorded — it says so (✅ *Done*). Each DM names what the
+worker works on and links the PR and the worker's conversation.
 
 Only the tiniest PRs skip your review: the worker may run the one merge command your profile
 declares, and a hook lets it through only when the PR passes the gate in your profile — its
