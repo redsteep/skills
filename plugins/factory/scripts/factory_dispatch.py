@@ -723,12 +723,13 @@ class Executor:
         mark_launched(name)
 
 
-# Shared runner rules the factory replaces: the gate hook decides merges and force-pushes, an
-# issue's worker closes its issue after the beta check, and any worker notes a test that flaked
-# again on the issue already open for it. An issue's worker also writes its step list into the
-# issue body and ticks it, and reports a shipped step in a comment.
-NOT_DENIED = ("Bash(gh pr merge", "Bash(gh issue close", "Bash(git push --force", "Bash(gh issue comment")
-NOT_DENIED_TO_ISSUES = ("Bash(gh issue edit",)
+# Shared runner rules the factory replaces: the gate hook decides merges and force-pushes, and
+# every worker keeps the issues it touches right -- an issue's worker closes its issue after the
+# beta check, writes its step list into the body and ticks it; any worker corrects an issue it
+# filed (a debt it found, a flaky test) and notes a flake again on the issue open for it.
+NOT_DENIED = ("Bash(gh pr merge", "Bash(gh issue close", "Bash(git push --force", "Bash(gh issue comment",
+              "Bash(gh issue edit")
+NOT_DENIED_TO_ISSUES: tuple[str, ...] = ()
 
 
 def deny_list(profile: Profile, issue: bool = False) -> list[str]:

@@ -284,11 +284,12 @@ class Issues(unittest.TestCase):
         self.assertNotIn("mcp__trello", deny_list(profile))
         self.assertFalse([r for r in deny_list(profile, issue=True) if r.startswith("Bash(gh issue close")])
 
-    def test_only_an_issue_worker_may_edit_issues(self):
-        # it writes its step list into the body and ticks it; a card's worker has no issue to edit
+    def test_every_worker_may_edit_issues(self):
+        # an issue's worker writes its step list into the body; any worker corrects an issue it filed
         profile = Profile("## Issues\n- **Label:** `ok`\n")
-        self.assertFalse([r for r in deny_list(profile, issue=True) if r.startswith("Bash(gh issue edit")])
-        self.assertEqual([r for r in deny_list(profile) if r.startswith("Bash(gh issue edit")], ["Bash(gh issue edit:*)"])
+        for issue in (True, False):
+            with self.subTest(issue=issue):
+                self.assertFalse([r for r in deny_list(profile, issue=issue) if r.startswith("Bash(gh issue edit")])
 
     def test_every_worker_may_comment_on_issues(self):
         # a test that flaked again is noted on the issue already open for it
