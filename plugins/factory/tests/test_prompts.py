@@ -45,3 +45,21 @@ class Prompts(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Rendering(unittest.TestCase):
+    """Every placeholder a template uses is filled: an unfilled one reaches the worker as literal
+    text (`--label {label}` did, from the start until 0.13.0)."""
+
+    def test_no_placeholder_is_left_unfilled(self):
+        import sys
+        sys.path.insert(0, str(PROMPTS.parent / "scripts"))
+        from factory_common import Profile
+        from factory_dispatch import Item, Step, issue_card, render_prompt
+        card = issue_card(7, "Issue 7", "https://github.com/o/r/issues/7", True)
+        step = Step(card, 1, Item("fix it", False), "in-progress")
+        for template in ("step.md", "recovery.md", "split.md"):
+            with self.subTest(template=template):
+                text = render_prompt(template, Path("/repo"), Profile(""), "factory-i7-s1", card=card, step=step,
+                                     total=1, recovered="in-progress")
+                self.assertEqual(re.findall(r"\{[a-z_]+\}", text), [])

@@ -86,6 +86,12 @@ handoff waits for. A test the worker finds **flaky**, there or on its own PR, ge
 the failed jobs and is recorded every time: an issue with the profile's `Flaky label`, or a
 comment on the one already open for that test.
 
+**Updates reach running workers.** A worker's instructions are its first message, so a factory
+update would otherwise pass it by. The first dispatch after an update re-renders each live worker's
+instructions for its step and sends it `instructions updated to <version> — read <file>`; a
+worker started on the current version is skipped. Scripts already run the new code; hooks the
+update added reach only workers started after it.
+
 A worker is a normal Claude Code session: open it in the Claude app (Code → its name, or the link
 in the Slack DM) and type. Events from the dispatcher start with `Factory event:`.
 

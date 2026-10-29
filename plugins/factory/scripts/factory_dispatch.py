@@ -36,6 +36,7 @@ from factory_common import (  # noqa: E402
 )
 
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent
+VERSION = json.loads((PLUGIN_ROOT / ".claude-plugin/plugin.json").read_text())["version"]
 DROPPED = "[dropped]"
 
 # Step states (spec: "Step state — the one predicate every rule reads").
@@ -118,6 +119,7 @@ class World:
     presence: dict = field(default_factory=dict)  # worker → when the developer last typed there
     reviews: dict = field(default_factory=dict)   # branch in review mode → requests queued
     review_idle: timedelta = timedelta(minutes=15)  # silence after which the developer has left
+    version: str = ""                # the factory's version: a worker started on an older one is re-instructed
 
 
 @dataclass(frozen=True)
@@ -174,6 +176,17 @@ class ReviewIdle:
     """The developer left the review: turn its review mode off and tell the worker."""
     worker: str
     branch: str
+
+
+@dataclass(frozen=True)
+class Reinstruct:
+    """The factory was updated under a running worker: its instructions are its first message, so
+    it gets them again, rendered for its step by the new version."""
+    step: "Step"
+
+
+def instructions_key(worker: str, version: str) -> str:
+    return f"instructions:{version}:{worker}"
 
 
 @dataclass(frozen=True)
@@ -321,6 +334,8 @@ def decide(world: World) -> list:
                         if key not in world.sent:
                             actions.append(SendEvent(step.worker, key, f"Factory event: {text}"))
                 actions += _review_idle(step, prs, world)
+                if world.version and instructions_key(step.worker, world.version) not in world.sent:
+                    actions.append(Reinstruct(step))
 
     # 4. A slot is held by a **live worker** of a started step -- through its handoff, until the
     # dispatcher has cleaned the done step up -- not by the step's state: so an issue's or a card's
@@ -680,6 +695,18 @@ class Executor:
                                   f"Factory event: review-idle {a.branch} — the developer has said nothing here "
                                   f"for a while, so review mode is off{queued} and do the upkeep you held"))
 
+    def _Reinstruct(self, a: Reinstruct) -> None:
+        s = a.step
+        path = STATE_DIR / "instructions" / f"{s.worker}-{VERSION}.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        total = len(s.card.items or ())
+        path.write_text(render_prompt("step.md", self.repo, self.profile, s.worker, card=s.card, step=s, total=total))
+        self._SendEvent(SendEvent(
+            s.worker, instructions_key(s.worker, VERSION),
+            f"Factory event: instructions updated to factory {VERSION} — read {path}: it replaces the "
+            "instructions you started with. Carry on from where you are, under the new ones. Hooks the "
+            "update added are not active in this session; scripts you call already run the new code."))
+
     def _ReviewOff(self, a: ReviewOff) -> None:
         run(["bash", str(PLUGIN_ROOT.parent / "review-mode/scripts/review-mode.sh"), "off", "-b", a.branch],
             cwd=self.repo, env={"CLAUDE_PROJECT_DIR": str(self.repo)})
@@ -734,6 +761,8 @@ class Executor:
                    f"--unit=factory-launch-{name}-{int(time.time())}", *cmd]
         run(cmd, cwd=cwd, env={"FACTORY_WORKER": name, "FACTORY_REPO": str(self.repo), "FACTORY_TITLE": title})
         mark_launched(name)
+        with sent_store() as sent:  # started on this version: nothing to re-instruct
+            sent.add(instructions_key(name, VERSION))
 
 
 # Shared runner rules the factory replaces: the gate hook decides merges and force-pushes, and
@@ -806,6 +835,7 @@ def render_prompt(template: str, repo: Path, profile: Profile, name: str, card: 
         "fix_prefix": step.fix_prefix if step else "",
         "entry": _entry(step),
         "base": profile.get("Repo", "Base", "main") or "main",
+        "label": profile.get("GitHub", "Label", "factory") or "factory",
         "rules": profile.text("Repo", "Rules", "`CLAUDE.md`") or "`CLAUDE.md`",
         "spec_template": profile.get("Repo", "Spec template", "") or "(none — use the repo's usual spec shape)",
         "specs_dir": profile.get("Repo", "Specs", "docs") or "docs",
@@ -865,6 +895,7 @@ def main() -> int:
                   for name, info in workers.items() if info.get("pid")},
         reviews=reviews_on(repo),
         review_idle=timedelta(minutes=int(profile.get("Settings", "Review idle", "15"))),
+        version=VERSION,
     )
     execute = Executor(repo, profile, dry_run=args.dry_run)
     failures = 0

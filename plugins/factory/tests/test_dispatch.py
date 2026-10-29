@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from factory_dispatch import (  # noqa: E402
     takes_issue,
-    DONE, DROPPED_STATE, FIXING, IN_PROGRESS, MERGED, PENDING, PR, Card, Cleanup, Item, ReviewIdle, ReviewOff,
+    DONE, DROPPED_STATE, FIXING, IN_PROGRESS, MERGED, PENDING, PR, Card, Cleanup, Item, Reinstruct, ReviewIdle, ReviewOff,
     Executor, MarkSent, SendEvent, StartSplit, StartStep, World, checked_out_at, decide, derive_step_state,
     _pr, deny_list, display_name, issue_card, uncommitted,
 )
@@ -41,11 +41,11 @@ NOW = datetime(2026, 10, 27, 12, 0, tzinfo=timezone.utc)
 
 
 def world(cards, prs=(), branches=(), workers=None, sent=(), wip=3, issue_wip=1, issue_daily=None,
-          presence=None, reviews=None):
+          presence=None, reviews=None, version=""):
     return World(tuple(cards), tuple(prs), frozenset(branches),
                  {name: {"status": status} for name, status in (workers or {}).items()},
                  frozenset(sent), wip, issue_wip=issue_wip, issue_daily=issue_daily, now=NOW,
-                 presence=presence or {}, reviews=reviews or {})
+                 presence=presence or {}, reviews=reviews or {}, version=version)
 
 
 def issue(number, open_=True, body=""):
@@ -607,6 +607,29 @@ class ReviewWithoutAPr(unittest.TestCase):
 
     def test_another_steps_review_is_left_alone(self):
         self.assertEqual(self.actions([pr(7, self.BRANCH, "CLOSED")], {"feature/factory-a-s2": 0}), [])
+
+
+class Reinstructing(unittest.TestCase):
+    """A worker started on an older factory gets its instructions again, once per version."""
+
+    def reinstructed(self, workers, sent=(), version="0.13.0"):
+        w = world([card("a", [todo()])], branches=["feature/factory-a-s1"], workers=workers,
+                  sent=sent, version=version)
+        return [a.step.worker for a in decide(w) if isinstance(a, Reinstruct)]
+
+    def test_a_live_worker_without_this_version_is_reinstructed(self):
+        self.assertEqual(self.reinstructed({"factory-a-s1": "busy"}), ["factory-a-s1"])
+
+    def test_once_per_version(self):
+        self.assertEqual(self.reinstructed({"factory-a-s1": "busy"}, sent=["instructions:0.13.0:factory-a-s1"]), [])
+        self.assertEqual(self.reinstructed({"factory-a-s1": "busy"}, sent=["instructions:0.12.3:factory-a-s1"]),
+                         ["factory-a-s1"])
+
+    def test_a_dead_worker_is_replaced_not_reinstructed(self):
+        self.assertEqual(self.reinstructed({"factory-a-s1": "dead"}), [])
+
+    def test_no_version_known_no_reinstructing(self):
+        self.assertEqual(self.reinstructed({"factory-a-s1": "busy"}, version=""), [])
 
 
 class CleanupRule(unittest.TestCase):
