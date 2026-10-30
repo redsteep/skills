@@ -350,6 +350,11 @@ class QueueRunsDry(unittest.TestCase):
         w = world([], sent=[queue_key(False), queue_key(True)])
         self.assertEqual(queue_notices(decide(w)), [])
 
+    def test_a_full_pool_with_nothing_waiting_says_nothing(self):
+        w = world([card("a", [todo()])], branches=["feature/factory-a-s1"], workers={"factory-a-s1": "busy"},
+                  wip=1, sent=[queue_key(True)])
+        self.assertEqual(queue_notices(decide(w)), [])
+
     def test_a_step_waiting_for_a_full_pool_is_no_empty_queue(self):
         w = world([card("a", [todo()]), card("b", [todo()])], branches=["feature/factory-a-s1"],
                   workers={"factory-a-s1": "busy"}, wip=1, sent=[queue_key(True)])

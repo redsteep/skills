@@ -11,9 +11,9 @@ spec, each PR's review and merge, "test it manually first?", and every message t
 Whenever a step waits for you, its worker DMs you on Slack (👋 *Needs you*); when it does something
 on its own you'd want to know — an auto-merge, an issue closed as already done or skipped for a
 decision, an upkeep push, a flaky test recorded — it says so (✅ *Done*). Each DM names what the
-worker works on and links the PR and the worker's conversation. When the last waiting card or issue
-has been taken, the dispatcher DMs you once (📭 *Queue empty*, with how many slots are still busy),
-so you can queue more before the factory runs idle; queuing something there re-arms it.
+worker works on and links the PR and the worker's conversation. When a slot is free and no card or
+issue is waiting to fill it, the dispatcher DMs you once (📭 *Queue empty*, with how many slots are
+still busy); queuing something there re-arms it.
 
 Only the tiniest PRs skip your review: the worker may run the one merge command your profile
 declares, and a hook lets it through only when the PR passes the gate in your profile — its

@@ -204,8 +204,8 @@ class ReviewOff:
 
 @dataclass(frozen=True)
 class QueueEmpty:
-    """Nothing is left waiting to start in a pool: the developer hears once, and again only after
-    something was queued there since."""
+    """A pool has a free slot and nothing waiting to fill it: the developer hears once, and again
+    only after something was queued there since."""
     issues: bool
     busy: int                        # slots of the pool its live workers hold
     wip: int
@@ -408,14 +408,14 @@ def decide(world: World) -> list:
             actions += _replace(step, world)
         held[issue] += 1
 
-    # 4b. A pool with nothing left waiting -- no card to split, no step to start or take back,
-    # whether or not a slot is free for it -- is depleted: the developer hears it once, so they can
-    # queue more before the slots run idle. Something queued there again re-arms it.
+    # 4b. A pool with nothing left waiting -- no card to split, no step to start or take back --
+    # and a slot free is running idle: the developer hears it once. A full pool says nothing, as
+    # there is no room to fill yet; it speaks when a slot frees. Something queued there re-arms it.
     for issues in (False, True):
         waiting = any((s.card.issue is not None) == issues for s in under_way + pending) or (
             not issues and any(isinstance(a, StartSplit) for a in actions))
         key = queue_key(issues)
-        if not waiting and key not in world.sent:
+        if not waiting and held[issues] < wip[issues] and key not in world.sent:
             actions.append(QueueEmpty(issues, held[issues], wip[issues]))
         elif waiting and key in world.sent:
             actions.append(Unsent((key,)))
