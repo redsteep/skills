@@ -96,7 +96,8 @@ Optional. Not auto-merge: the developer's own merge, which the worker runs for t
 enabled, the developer's `LGTM` (or "merge") typed in a worker's conversation lets the worker
 merge the PR under review — past the excluded paths above, and with a merge commit for a PR
 another is stacked on. Only a message the developer typed after the PR's last commit counts; a
-later "wait" or "don't merge" cancels it, and CI must not have failed. Leave it out to merge
-every reviewed PR yourself.
+later "wait" or "don't merge" cancels it. CI must have finished and be green: a red check refuses
+the merge, and checks still running make it a wait — the word stands, and the worker merges when
+they pass, without asking again. Leave it out to merge every reviewed PR yourself.
 
 - **Enabled:** yes

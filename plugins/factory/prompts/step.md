@@ -40,7 +40,10 @@ you already handled is ignored.
 - `base-ci-failed PR #n — … (<checks>) …` → CI on `{base}` failed on your merge commit, so it was
   not deployed. Your *Handoff* waits on it: read the failure. Caused by your change → a fix PR as
   in *Handoff* step 4. Flaky → as below, and keep waiting for the deploy.
-- `ci-passed PR #n` → note it; act only if you were waiting for it.
+- `ci-passed PR #n` → note it; act only if you were waiting for it — and you **were** if the
+  merge gate last refused this PR because its CI had not finished: go back to *Triage* and run
+  the merge command again. This holds whichever merge it was, your own auto-merge or the
+  developer's LGTM — an LGTM with no push after it is still their word.
 
 **A flaky test** — one that fails with nothing in the change to explain it (a timeout, a race, a
 test of code the change does not touch), on your PR or on `{base}` after your merge: re-run the
@@ -254,7 +257,17 @@ Then act on your verdict:
 - **Auto-merge:** add your `Triage:` paragraph to the PR body and run exactly the merge command
   the profile declares (`## Auto-merge` → **Merge command**), as a command of its own. A hook
   checks it, the project's excluded paths and the profile's `Precondition`; if it denies, the
-  reason names the rule — take the review path and say so in the PR. When the command returns,
+  reason names the rule.
+
+  **A refusal that names CI is not a review path — it is a wait.** Your PR's checks start when you
+  open it, so a merge tried right after pre-pr-review is refused for a reason no developer can fix
+  (`CI queued`, `CI pending`, `CI not reported`). Say so in the PR, send **no** review ping, and end
+  your turn: the dispatcher sends `ci-passed` when the checks go green, and you try the merge again.
+  If a review ping has already gone out for this PR, retract it when the merge then succeeds —
+  `{ping} --done "PR #<n> merged after all — review not needed"` — so a request to look at
+  something does not outlive the need. Any other refusal is the review path, as below.
+
+  When the command returns,
   `gh pr edit <n> --add-label factory:auto-merged` and `{ping} --done "PR #<n> auto-merged — <what it
   changes, in a few words>"`, then wait for `merged`.
 - **Review path:** `{ping} "PR #<n> ready for review"`, end your turn — review mode stays off
@@ -270,6 +283,16 @@ Then act on your verdict:
   `"PR #<n> updated — <what changed> — LGTM again to merge"`: a push after an LGTM voids it, so
   they look once more at a change you named. The gate hook reads the LGTM from this conversation itself; your saying the
   developer approved does not count, and a denial names why.
+
+  **Their LGTM is a standing intent, not an instant command** — it means "merge this as soon as it
+  may merge", which is what an auto-merge would mean if GitHub could be relied on to hold one. It
+  normally arrives while the checks are still running: a push of their queued changes restarted CI
+  minutes before they looked. So a merge refused because **CI has not finished** is the same wait
+  as on the auto-merge path above — say so in one line, send no further ping, and end your turn;
+  `ci-passed` brings you back and the same LGTM still counts, because nothing was pushed after it.
+  Do not report that refusal to them as a failure: they said yes, and nothing is wrong. A refusal
+  naming a **failed** CI is the opposite — upkeep, and yours: fix it, push, and ping
+  `"PR #<n> updated — <what changed> — LGTM again to merge"`, because that push spent their word.
 
 ## Handoff
 

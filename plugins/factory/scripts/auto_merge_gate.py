@@ -55,6 +55,7 @@ class Diff:
     stacked: tuple[int, ...] = ()      # open PRs based on this PR's branch
     head_committed: str = ""           # the head commit's ISO committer date
     ci_failed: bool = False            # a check on the head commit concluded in failure
+    ci_unfinished: bool = False        # a check on the head commit is still running
 
 
 DEFAULT_MERGE = "gh pr merge --auto --squash"
@@ -124,18 +125,26 @@ def approval_failed(messages: list[tuple[str, str]], number: str, diff: Diff) ->
             return "a commit was pushed after your LGTM — look again"
         if diff.ci_failed:
             return "CI failed on the head commit"
+        if diff.ci_unfinished:
+            return "CI has not finished on the head commit"
         return None
     return "no LGTM from the developer in this conversation"
 
 
-def precondition_failed(gate: Gate, number: str, repo: Path) -> str | None:
+def precondition_failed(gate: Gate, number: str, repo: Path, on_lgtm: bool = False) -> str | None:
     """The project's own "safe to merge right now" check. Its output is the reason, so a project
     says why in its own words; a non-zero exit with no output still denies."""
     if not gate.precondition:
         return None
+    # `FACTORY_LGTM` is how the command learns which merge this is. The hook waives its own
+    # excluded paths on an LGTM, and a project that moved that list into its Precondition has to be
+    # told, or the ban comes back through the back door and the developer's word means nothing.
+    # What the command must still refuse on an LGTM is its own business — a red CI, a deploy of the
+    # base branch already running — and only it knows those.
+    env = {**os.environ, "FACTORY_LGTM": "1" if on_lgtm else ""}
     try:
         out = subprocess.run(["bash", "-c", gate.precondition.replace("<number>", number)],
-                             cwd=repo, capture_output=True, text=True, timeout=90)
+                             cwd=repo, capture_output=True, text=True, timeout=90, env=env)
     except subprocess.TimeoutExpired:
         return "precondition timed out"
     if out.returncode == 0:
@@ -204,7 +213,7 @@ def judge(command: str, fetch_diff, gate: Gate, repo: Path = Path("."),
         refused = approval_failed(messages(), numbers[0], diff)
         if refused:
             return "deny", f"merge on LGTM: {refused}."
-    rule = precondition_failed(gate, numbers[0], repo)
+    rule = precondition_failed(gate, numbers[0], repo, on_lgtm)
     if rule:
         return "deny", (f"merge on LGTM: {rule}." if on_lgtm
                         else f"auto-merge gate: {rule}. Take the review path instead.")
@@ -213,17 +222,32 @@ def judge(command: str, fetch_diff, gate: Gate, repo: Path = Path("."),
     return "allow", f"auto-merge gate passed for PR #{numbers[0]}"
 
 
+def ci_state(rollup: list[dict]) -> tuple[bool, bool]:
+    """(failed, unfinished) over the head commit's checks. A check run reports `status` and, once
+    it is over, a `conclusion`; a commit status reports only `state`. An empty rollup is neither:
+    a repository with no CI at all would otherwise never merge on an LGTM, and "no check has
+    reported yet" is a question only the project's own `Precondition` can answer — it knows which
+    checks it expects."""
+    failed = any((c.get("conclusion") or "").upper() in ("FAILURE", "TIMED_OUT", "CANCELLED")
+                 or (c.get("state") or "").upper() in ("FAILURE", "ERROR")
+                 for c in rollup)
+    unfinished = any((c.get("status") or c.get("state") or "").upper()
+                     in ("QUEUED", "IN_PROGRESS", "WAITING", "PENDING", "EXPECTED", "REQUESTED")
+                     for c in rollup)
+    return failed, unfinished
+
+
 def _fetch_diff(number: str) -> Diff:
     data = json.loads(run(["gh", "pr", "view", number, "--json",
                            "additions,deletions,files,labels,body,headRefName,commits,statusCheckRollup"]))
     stacked = json.loads(run(["gh", "pr", "list", "--base", data["headRefName"], "--state", "open",
                               "--json", "number"]) or "[]")
+    failed, unfinished = ci_state(data.get("statusCheckRollup") or [])
     return Diff(data["additions"], data["deletions"], tuple(f["path"] for f in data["files"]),
                 tuple(l["name"] for l in data["labels"]), data.get("body") or "",
                 tuple(p["number"] for p in stacked),
                 (data.get("commits") or [{}])[-1].get("committedDate", ""),
-                any((c.get("conclusion") or "").upper() in ("FAILURE", "TIMED_OUT", "CANCELLED")
-                    for c in data.get("statusCheckRollup") or []))
+                failed, unfinished)
 
 
 def main() -> int:

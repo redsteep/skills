@@ -149,8 +149,11 @@ in the Slack DM) and type. Events from the dispatcher start with `Factory event:
 3. **Merge on LGTM** (optional, profile `## Merge on LGTM`) — not auto-merge: your merge, run
    by the worker. The gate hook reads your `LGTM` from the worker's own transcript — a message you
    typed, never a peer's or the dispatcher's, newer than the PR's head commit, not followed by a
-   hold, CI not failed — and only then lets the merge past the excluded paths (and a stacked
-   PR's `--merge`). A worker cannot approve on your behalf.
+   hold, CI neither failed nor still running — and only then lets the merge past the excluded
+   paths (and a stacked PR's `--merge`). A worker cannot approve on your behalf. Your word is a
+   standing one: when the checks have not finished (the usual case, since the push of your queued
+   changes restarted them), the worker waits and merges on `ci-passed` without asking again —
+   GitHub cannot be relied on to hold a merge for CI, so the worker is where that waiting lives.
 4. **The prompts** — a worker writes no code before your approval, posts nothing to anyone but you
    without your yes, and its judgement can only send a PR to review, never past it.
 5. **Locks** — handoffs and migration round-trips run one worker at a time (`factory-lock`).

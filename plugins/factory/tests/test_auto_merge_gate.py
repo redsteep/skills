@@ -10,7 +10,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import json
 import tempfile
 
-from auto_merge_gate import Diff, Gate, approval_failed, failed_rule, force_push, judge  # noqa: E402
+from auto_merge_gate import (Diff, Gate, approval_failed, ci_state, failed_rule,  # noqa: E402
+                             force_push, judge)
 from review_presence import typed_by_developer  # noqa: E402
 from factory_common import developer_messages  # noqa: E402
 
@@ -20,8 +21,9 @@ TRIAGE = "Summary\n\nTriage: copy change in one template, nothing open from revi
 
 
 def diff(additions=10, deletions=0, files=("docs/a.md",), labels=("factory",), body=TRIAGE, stacked=(),
-         head_committed="", ci_failed=False):
-    return Diff(additions, deletions, tuple(files), tuple(labels), body, tuple(stacked), head_committed, ci_failed)
+         head_committed="", ci_failed=False, ci_unfinished=False):
+    return Diff(additions, deletions, tuple(files), tuple(labels), body, tuple(stacked), head_committed,
+                ci_failed, ci_unfinished)
 
 
 def verdict(command, d=None, gate=GATE):
@@ -93,10 +95,6 @@ class MergeRoutes(unittest.TestCase):
         for command in ["gh pr view 412", "gh api repos/o/r/pulls/412/comments", "git push origin feature/factory-a-s1"]:
             with self.subTest(command=command):
                 self.assertIsNone(verdict(command))
-
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 class Precondition(unittest.TestCase):
@@ -179,6 +177,43 @@ class MergeOnLgtm(unittest.TestCase):
     def test_failed_ci_is_refused(self):
         self.assertEqual(approval_failed([(AFTER, "LGTM")], "412", migration(ci_failed=True)),
                          "CI failed on the head commit")
+
+    def test_unfinished_ci_is_a_wait_that_names_ci(self):
+        """The developer's LGTM normally arrives while the checks are still running: a push of
+        their queued changes voids the previous LGTM and restarts CI, so the one they then type is
+        minutes older than the build. The reason names CI because that is how the worker tells a
+        wait from a review path — it holds the approval and retries on `ci-passed` instead of
+        reporting a failure to someone who already said yes."""
+        self.assertEqual(approval_failed([(AFTER, "LGTM")], "412", migration(ci_unfinished=True)),
+                         "CI has not finished on the head commit")
+
+    def test_a_finished_green_ci_merges(self):
+        self.assertIsNone(approval_failed([(AFTER, "LGTM")], "412", migration()))
+
+    def test_a_failed_check_beats_an_unfinished_one(self):
+        """Two checks, one red and one still running: the red one decides — waiting for the other
+        would end in the merge of a branch already known to be broken."""
+        self.assertEqual(approval_failed([(AFTER, "LGTM")], "412",
+                                         migration(ci_failed=True, ci_unfinished=True)),
+                         "CI failed on the head commit")
+
+    def test_the_precondition_is_told_that_this_merge_is_on_an_lgtm(self):
+        """A project that moved the excluded paths into its Precondition has to learn which merge
+        this is, or the ban the LGTM waives comes back through the command and the developer's word
+        means nothing. Measured live on PR #404: the hook waived its own paths, the project's
+        `--gate` refused on the same path, and the merge the developer had approved did not happen.
+        What the command still refuses on an LGTM — a red CI, a deploy of the base already
+        running — stays its own call."""
+        lgtm = Gate(required_args=("--auto", "--squash"), excluded=EXCLUDED, lgtm_merge=True,
+                    precondition='test "$FACTORY_LGTM" = 1')
+        self.assertEqual(lgtm_verdict("gh pr merge --auto --squash 412", migration(), [(AFTER, "LGTM")],
+                                      gate=lgtm)[0], "allow")
+
+    def test_an_ordinary_auto_merge_does_not_claim_an_lgtm(self):
+        plain = Gate(required_args=("--auto", "--squash"), excluded=EXCLUDED, lgtm_merge=True,
+                     precondition='test -z "$FACTORY_LGTM"')
+        self.assertEqual(verdict("gh pr merge --auto --squash 412", gate=plain),
+                         ("allow", "auto-merge gate passed for PR #412"))
 
     def test_an_lgtm_never_merges_a_pr_without_the_factory_label(self):
         self.assertEqual(lgtm_verdict("gh pr merge --auto --squash 412", migration(labels=()), [(AFTER, "LGTM")])[0],
@@ -263,3 +298,49 @@ class TypedByDeveloper(unittest.TestCase):
                        "<task-notification><task-id>x</task-id></task-notification>", "  "):
             with self.subTest(prompt=prompt[:30]):
                 self.assertFalse(typed_by_developer(prompt))
+
+
+class CiState(unittest.TestCase):
+    """The shapes `gh pr view --json statusCheckRollup` really returns. Measured on the host
+    project's PR #408: Cloud Build posts a `CheckRun`, so `conclusion` carries the verdict and
+    `status` says whether it is over. A GitHub App or an external service posts a `StatusContext`
+    instead, which has neither — only `state`."""
+
+    def test_a_finished_check_run(self):
+        self.assertEqual(ci_state([{"__typename": "CheckRun", "name": "uspex-billing-ci (archive-dwh)",
+                                    "status": "COMPLETED", "conclusion": "SUCCESS"}]),
+                         (False, False))
+
+    def test_a_check_run_still_building(self):
+        self.assertEqual(ci_state([{"__typename": "CheckRun", "status": "IN_PROGRESS", "conclusion": ""}]),
+                         (False, True))
+
+    def test_a_check_run_queued_right_after_the_pr_opened(self):
+        self.assertEqual(ci_state([{"__typename": "CheckRun", "status": "QUEUED", "conclusion": None}]),
+                         (False, True))
+
+    def test_a_failed_check_run(self):
+        self.assertEqual(ci_state([{"__typename": "CheckRun", "status": "COMPLETED", "conclusion": "FAILURE"}]),
+                         (True, False))
+
+    def test_a_pending_commit_status_has_no_status_field(self):
+        self.assertEqual(ci_state([{"__typename": "StatusContext", "context": "ci/external", "state": "PENDING"}]),
+                         (False, True))
+
+    def test_a_failed_commit_status(self):
+        self.assertEqual(ci_state([{"__typename": "StatusContext", "context": "ci/external", "state": "FAILURE"}]),
+                         (True, False))
+
+    def test_no_checks_at_all_is_neither(self):
+        """A repository without CI still merges on an LGTM; whether a check *should* have reported
+        is the project's `Precondition` to judge — only it knows which checks it expects."""
+        self.assertEqual(ci_state([]), (False, False))
+
+    def test_one_green_and_one_running(self):
+        self.assertEqual(ci_state([{"status": "COMPLETED", "conclusion": "SUCCESS"},
+                                   {"status": "IN_PROGRESS"}]),
+                         (False, True))
+
+
+if __name__ == "__main__":
+    unittest.main()
