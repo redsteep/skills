@@ -55,6 +55,7 @@ class Diff:
     stacked: tuple[int, ...] = ()      # open PRs based on this PR's branch
     head_committed: str = ""           # the head commit's ISO committer date
     ci_failed: bool = False            # a check on the head commit concluded in failure
+    ci_unfinished: bool = False        # a check on the head commit is still running
 
 
 DEFAULT_MERGE = "gh pr merge --auto --squash"
@@ -124,6 +125,8 @@ def approval_failed(messages: list[tuple[str, str]], number: str, diff: Diff) ->
             return "a commit was pushed after your LGTM — look again"
         if diff.ci_failed:
             return "CI failed on the head commit"
+        if diff.ci_unfinished:
+            return "CI has not finished on the head commit"
         return None
     return "no LGTM from the developer in this conversation"
 
@@ -219,17 +222,32 @@ def judge(command: str, fetch_diff, gate: Gate, repo: Path = Path("."),
     return "allow", f"auto-merge gate passed for PR #{numbers[0]}"
 
 
+def ci_state(rollup: list[dict]) -> tuple[bool, bool]:
+    """(failed, unfinished) over the head commit's checks. A check run reports `status` and, once
+    it is over, a `conclusion`; a commit status reports only `state`. An empty rollup is neither:
+    a repository with no CI at all would otherwise never merge on an LGTM, and "no check has
+    reported yet" is a question only the project's own `Precondition` can answer — it knows which
+    checks it expects."""
+    failed = any((c.get("conclusion") or "").upper() in ("FAILURE", "TIMED_OUT", "CANCELLED")
+                 or (c.get("state") or "").upper() in ("FAILURE", "ERROR")
+                 for c in rollup)
+    unfinished = any((c.get("status") or c.get("state") or "").upper()
+                     in ("QUEUED", "IN_PROGRESS", "WAITING", "PENDING", "EXPECTED", "REQUESTED")
+                     for c in rollup)
+    return failed, unfinished
+
+
 def _fetch_diff(number: str) -> Diff:
     data = json.loads(run(["gh", "pr", "view", number, "--json",
                            "additions,deletions,files,labels,body,headRefName,commits,statusCheckRollup"]))
     stacked = json.loads(run(["gh", "pr", "list", "--base", data["headRefName"], "--state", "open",
                               "--json", "number"]) or "[]")
+    failed, unfinished = ci_state(data.get("statusCheckRollup") or [])
     return Diff(data["additions"], data["deletions"], tuple(f["path"] for f in data["files"]),
                 tuple(l["name"] for l in data["labels"]), data.get("body") or "",
                 tuple(p["number"] for p in stacked),
                 (data.get("commits") or [{}])[-1].get("committedDate", ""),
-                any((c.get("conclusion") or "").upper() in ("FAILURE", "TIMED_OUT", "CANCELLED")
-                    for c in data.get("statusCheckRollup") or []))
+                failed, unfinished)
 
 
 def main() -> int:

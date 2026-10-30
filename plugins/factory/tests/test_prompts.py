@@ -49,14 +49,22 @@ class Prompts(unittest.TestCase):
         events = section(self.step, "Events")
         self.assertIn("go back to *Triage*", events)
 
+    def test_an_lgtm_outlives_the_wait_for_ci(self):
+        """Measured on #336: the developer's LGTM landed while CI was still running — on the very
+        push that had applied their queued changes, which is the normal order. The merge was
+        refused, the worker read the refusal as a failure and said LGTM had not worked, and the PR
+        sat waiting for a word already given. The wait does not spend their approval; only a later
+        push does."""
+        triage = section(self.step, "Triage")
+        self.assertIn("standing intent", triage)
+        self.assertIn("CI has not finished", triage)
+        self.assertIn("spent their word", triage)
+        self.assertIn("still their word", section(self.step, "Events"))
+
     def test_no_prompt_hardcodes_a_merge_command(self):
         for path in PROMPTS.glob("*.md"):
             with self.subTest(prompt=path.name):
                 self.assertNotRegex(path.read_text(), r"gh pr merge\s+--")
-
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 class Rendering(unittest.TestCase):
@@ -77,3 +85,7 @@ class Rendering(unittest.TestCase):
                 self.assertEqual(re.findall(r"\{[a-z_]+\}", text), [])
                 if template != "split.md":
                     self.assertIn("factory-ping --worker factory-i7-s1", text)
+
+
+if __name__ == "__main__":
+    unittest.main()
