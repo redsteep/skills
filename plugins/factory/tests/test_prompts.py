@@ -37,6 +37,18 @@ class Prompts(unittest.TestCase):
         self.assertIn("Approved-by:", self.recovery)
         self.assertNotIn("spec-approved", self.recovery)
 
+    def test_a_gate_refusal_about_ci_is_a_wait_not_a_review(self):
+        """Measured on #401: the worker tried the merge 25 seconds after opening the PR, was
+        refused with `CI queued`, read that as "needs a developer", and slept — while `ci-passed`
+        arrived three minutes later and went unused. A six-minute merge took eight hours and left
+        a review request standing that nobody needed."""
+        triage = section(self.step, "Triage")
+        self.assertIn("CI queued", triage)
+        self.assertIn("ci-passed", triage)
+        self.assertIn("--done", triage)
+        events = section(self.step, "Events")
+        self.assertIn("go back to *Triage*", events)
+
     def test_no_prompt_hardcodes_a_merge_command(self):
         for path in PROMPTS.glob("*.md"):
             with self.subTest(prompt=path.name):

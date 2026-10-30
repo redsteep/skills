@@ -40,7 +40,9 @@ you already handled is ignored.
 - `base-ci-failed PR #n — … (<checks>) …` → CI on `{base}` failed on your merge commit, so it was
   not deployed. Your *Handoff* waits on it: read the failure. Caused by your change → a fix PR as
   in *Handoff* step 4. Flaky → as below, and keep waiting for the deploy.
-- `ci-passed PR #n` → note it; act only if you were waiting for it.
+- `ci-passed PR #n` → note it; act only if you were waiting for it — and you **were** if the
+  merge gate last refused this PR because its CI had not finished: go back to *Triage* and run
+  the merge command again.
 
 **A flaky test** — one that fails with nothing in the change to explain it (a timeout, a race, a
 test of code the change does not touch), on your PR or on `{base}` after your merge: re-run the
@@ -254,7 +256,17 @@ Then act on your verdict:
 - **Auto-merge:** add your `Triage:` paragraph to the PR body and run exactly the merge command
   the profile declares (`## Auto-merge` → **Merge command**), as a command of its own. A hook
   checks it, the project's excluded paths and the profile's `Precondition`; if it denies, the
-  reason names the rule — take the review path and say so in the PR. When the command returns,
+  reason names the rule.
+
+  **A refusal that names CI is not a review path — it is a wait.** Your PR's checks start when you
+  open it, so a merge tried right after pre-pr-review is refused for a reason no developer can fix
+  (`CI queued`, `CI pending`, `CI not reported`). Say so in the PR, send **no** review ping, and end
+  your turn: the dispatcher sends `ci-passed` when the checks go green, and you try the merge again.
+  If a review ping has already gone out for this PR, retract it when the merge then succeeds —
+  `{ping} --done "PR #<n> merged after all — review not needed"` — so a request to look at
+  something does not outlive the need. Any other refusal is the review path, as below.
+
+  When the command returns,
   `gh pr edit <n> --add-label factory:auto-merged` and `{ping} --done "PR #<n> auto-merged — <what it
   changes, in a few words>"`, then wait for `merged`.
 - **Review path:** `{ping} "PR #<n> ready for review"`, end your turn — review mode stays off
