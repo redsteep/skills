@@ -203,6 +203,25 @@ class ReviewOff:
 
 
 @dataclass(frozen=True)
+class QueueEmpty:
+    """Nothing is left waiting to start in a pool: the developer hears once, and again only after
+    something was queued there since."""
+    issues: bool
+    busy: int                        # slots of the pool its live workers hold
+    wip: int
+
+
+@dataclass(frozen=True)
+class Unsent:
+    """Keys to forget, so what they stood for can be sent again."""
+    keys: tuple[str, ...]
+
+
+def queue_key(issues: bool) -> str:
+    return f"queue-empty:{'issues' if issues else 'cards'}"
+
+
+@dataclass(frozen=True)
 class Cleanup:
     worker: str | None               # live session to stop, if any
     branch: str | None               # step branch whose worktree + branch to remove
@@ -388,6 +407,18 @@ def decide(world: World) -> list:
         else:
             actions += _replace(step, world)
         held[issue] += 1
+
+    # 4b. A pool with nothing left waiting -- no card to split, no step to start or take back,
+    # whether or not a slot is free for it -- is depleted: the developer hears it once, so they can
+    # queue more before the slots run idle. Something queued there again re-arms it.
+    for issues in (False, True):
+        waiting = any((s.card.issue is not None) == issues for s in under_way + pending) or (
+            not issues and any(isinstance(a, StartSplit) for a in actions))
+        key = queue_key(issues)
+        if not waiting and key not in world.sent:
+            actions.append(QueueEmpty(issues, held[issues], wip[issues]))
+        elif waiting and key in world.sent:
+            actions.append(Unsent((key,)))
 
     # 5. Done steps and stopped cards are cleaned up; the dispatcher is the only cleanup owner.
     for name, info in world.workers.items():
@@ -721,6 +752,20 @@ class Executor:
     def _MarkSent(self, a: MarkSent) -> None:
         with sent_store() as sent:
             sent.update(a.keys)
+
+    def _QueueEmpty(self, a: QueueEmpty) -> None:
+        what = (f"no `{self.profile.get('Issues', 'Label')}` issue" if a.issues
+                else f"no `{self.profile.get('Trello', 'Ready label', 'Ready')}` card")
+        pool = "issue" if a.issues else "card"
+        run([str(PLUGIN_ROOT / "scripts/factory-ping"), "--factory",
+             f"{what} is waiting — {a.busy} of {a.wip} {pool} slot{'s' if a.wip != 1 else ''} busy"],
+            env={"FACTORY_REPO": str(self.repo)})
+        with sent_store() as sent:
+            sent.add(queue_key(a.issues))
+
+    def _Unsent(self, a: Unsent) -> None:
+        with sent_store() as sent:
+            sent.difference_update(a.keys)
 
     def _Cleanup(self, a: Cleanup) -> None:
         if a.worker:

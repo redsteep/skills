@@ -6,6 +6,7 @@ conversation. At most once per reason per step: a replacement worker with the sa
 ping the same reason again.
 
     factory-ping [--done] --worker <name> "<one-line reason>"
+    factory-ping --factory "<one-line notice>"      # about the factory itself, from the dispatcher
 
 Env: FACTORY_SLACK_TOKEN (optional — without it nothing is sent; a bot token, since a DM from the
 developer's own user would not notify them; read from <repo>/.env if not in the environment),
@@ -43,6 +44,10 @@ def message(reason: str, title: str, url: str, pr_url: str | None = None, done: 
     head = "✅ *Done*" if done else "👋 *Needs you*"
     links = ([f"<{pr_url}|PR #{_PR.search(reason)[1]}>"] if pr_url else []) + [f"<{url}|Open the conversation>"]
     return f"{head} — {reason.strip()}\n{title}\n{'  ·  '.join(links)}"
+
+
+def factory_message(notice: str) -> str:
+    return f"📭 *Queue empty* — {notice.strip()}"
 
 
 def pr_url(reason: str) -> str | None:
@@ -94,7 +99,9 @@ def send(worker: str, reason: str, post, done: bool = False) -> bool:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Slack-DM the developer that a factory worker waits on them.")
-    ap.add_argument("--worker", default=os.environ.get("FACTORY_WORKER"), required=not os.environ.get("FACTORY_WORKER"))
+    who = ap.add_mutually_exclusive_group(required=True)
+    who.add_argument("--worker")
+    who.add_argument("--factory", action="store_true", help="a notice from the dispatcher; the caller dedupes")
     ap.add_argument("--done", action="store_true", help="something the worker did on its own, for information")
     ap.add_argument("reason")
     args = ap.parse_args()
@@ -113,6 +120,10 @@ def main() -> int:
         channel = slack(token, "conversations.open", {"users": user})["channel"]["id"]
         slack(token, "chat.postMessage", {"channel": channel, "text": text, "unfurl_links": False})
 
+    if args.factory:
+        post(factory_message(args.reason))
+        print("factory-ping: sent")
+        return 0
     posted = send(args.worker, args.reason, post, args.done)
     print("factory-ping: sent" if posted else "factory-ping: already sent for this step, skipped")
     return 0

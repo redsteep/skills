@@ -11,7 +11,9 @@ spec, each PR's review and merge, "test it manually first?", and every message t
 Whenever a step waits for you, its worker DMs you on Slack (👋 *Needs you*); when it does something
 on its own you'd want to know — an auto-merge, an issue closed as already done or skipped for a
 decision, an upkeep push, a flaky test recorded — it says so (✅ *Done*). Each DM names what the
-worker works on and links the PR and the worker's conversation.
+worker works on and links the PR and the worker's conversation. When the last waiting card or issue
+has been taken, the dispatcher DMs you once (📭 *Queue empty*, with how many slots are still busy),
+so you can queue more before the factory runs idle; queuing something there re-arms it.
 
 Only the tiniest PRs skip your review: the worker may run the one merge command your profile
 declares, and a hook lets it through only when the PR passes the gate in your profile — its
@@ -159,7 +161,7 @@ in the Slack DM) and type. Events from the dispatcher start with `Factory event:
 |---|---|
 | `scripts/factory_dispatch.py` | the dispatcher; all routing is `decide()`, a pure function |
 | `scripts/auto_merge_gate.py` | the PreToolUse gate hook |
-| `scripts/factory_ping.py` | `factory-ping` — Slack DM, once per reason per step |
+| `scripts/factory_ping.py` | `factory-ping` — Slack DM, once per reason per step; `--factory` for the dispatcher's own notices |
 | `scripts/factory_lock.py` | `factory-lock acquire|release handoff|migration` |
 | `scripts/remove-step-worktree.sh` | non-interactive cleanup of a finished step |
 | `prompts/` | split, step and recovery worker prompts |

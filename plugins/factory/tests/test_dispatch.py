@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from factory_dispatch import (  # noqa: E402
     takes_issue,
     DONE, DROPPED_STATE, FIXING, IN_PROGRESS, MERGED, PENDING, PR, Card, Cleanup, Item, Reinstruct, ReviewIdle, ReviewOff,
-    Executor, MarkSent, SendEvent, StartSplit, StartStep, World, checked_out_at, decide, derive_step_state,
+    Executor, MarkSent, QueueEmpty, SendEvent, Unsent, queue_key, StartSplit, StartStep, World, checked_out_at, decide, derive_step_state,
     _pr, deny_list, display_name, issue_card, uncommitted,
 )
 from factory_common import Profile  # noqa: E402
@@ -330,6 +330,42 @@ class IssueSteps(unittest.TestCase):
         today = PR(p.number, p.state, p.head, p.head_sha, p.ci, p.conflicting, p.url, created=NOW - timedelta(hours=1))
         w = world([issue(7, body=STEPS_BODY)], prs=[today], issue_daily=1)
         self.assertEqual(started(decide(w)), [])
+
+
+def queue_notices(actions):
+    return [a for a in actions if isinstance(a, (QueueEmpty, Unsent))]
+
+
+class QueueRunsDry(unittest.TestCase):
+    def test_cards_pool_with_nothing_waiting_is_reported_with_its_busy_slots(self):
+        w = world([card("a", [todo()])], branches=["feature/factory-a-s1"], workers={"factory-a-s1": "busy"},
+                  sent=[queue_key(True)])
+        self.assertEqual(queue_notices(decide(w)), [QueueEmpty(False, 1, 3)])
+
+    def test_issue_pool_is_reported_on_its_own(self):
+        w = world([card("a", [todo()])], sent=[])
+        self.assertEqual(queue_notices(decide(w)), [QueueEmpty(True, 0, 1)])
+
+    def test_a_reported_pool_is_not_reported_again(self):
+        w = world([], sent=[queue_key(False), queue_key(True)])
+        self.assertEqual(queue_notices(decide(w)), [])
+
+    def test_a_step_waiting_for_a_full_pool_is_no_empty_queue(self):
+        w = world([card("a", [todo()]), card("b", [todo()])], branches=["feature/factory-a-s1"],
+                  workers={"factory-a-s1": "busy"}, wip=1, sent=[queue_key(True)])
+        self.assertEqual(queue_notices(decide(w)), [])
+
+    def test_a_card_to_split_is_waiting_work(self):
+        w = world([card("a")], sent=[queue_key(True)])
+        self.assertEqual(queue_notices(decide(w)), [])
+
+    def test_an_issue_held_back_by_the_daily_cap_is_waiting_work(self):
+        w = world([issue(8)], issue_daily=0, sent=[queue_key(False)])
+        self.assertEqual(queue_notices(decide(w)), [])
+
+    def test_work_queued_after_a_report_rearms_it(self):
+        w = world([card("b", [todo()])], sent=[queue_key(False), queue_key(True)])
+        self.assertEqual(queue_notices(decide(w)), [Unsent((queue_key(False),))])
 
 
 class DisplayName(unittest.TestCase):
