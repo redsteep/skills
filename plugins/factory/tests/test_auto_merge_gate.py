@@ -180,6 +180,24 @@ class MergeOnLgtm(unittest.TestCase):
         self.assertEqual(approval_failed([(AFTER, "LGTM")], "412", migration(ci_failed=True)),
                          "CI failed on the head commit")
 
+    def test_the_precondition_is_told_that_this_merge_is_on_an_lgtm(self):
+        """A project that moved the excluded paths into its Precondition has to learn which merge
+        this is, or the ban the LGTM waives comes back through the command and the developer's word
+        means nothing. Measured live on PR #404: the hook waived its own paths, the project's
+        `--gate` refused on the same path, and the merge the developer had approved did not happen.
+        What the command still refuses on an LGTM — a red CI, a deploy of the base already
+        running — stays its own call."""
+        lgtm = Gate(required_args=("--auto", "--squash"), excluded=EXCLUDED, lgtm_merge=True,
+                    precondition='test "$FACTORY_LGTM" = 1')
+        self.assertEqual(lgtm_verdict("gh pr merge --auto --squash 412", migration(), [(AFTER, "LGTM")],
+                                      gate=lgtm)[0], "allow")
+
+    def test_an_ordinary_auto_merge_does_not_claim_an_lgtm(self):
+        plain = Gate(required_args=("--auto", "--squash"), excluded=EXCLUDED, lgtm_merge=True,
+                     precondition='test -z "$FACTORY_LGTM"')
+        self.assertEqual(verdict("gh pr merge --auto --squash 412", gate=plain),
+                         ("allow", "auto-merge gate passed for PR #412"))
+
     def test_an_lgtm_never_merges_a_pr_without_the_factory_label(self):
         self.assertEqual(lgtm_verdict("gh pr merge --auto --squash 412", migration(labels=()), [(AFTER, "LGTM")])[0],
                          "deny")

@@ -128,14 +128,20 @@ def approval_failed(messages: list[tuple[str, str]], number: str, diff: Diff) ->
     return "no LGTM from the developer in this conversation"
 
 
-def precondition_failed(gate: Gate, number: str, repo: Path) -> str | None:
+def precondition_failed(gate: Gate, number: str, repo: Path, on_lgtm: bool = False) -> str | None:
     """The project's own "safe to merge right now" check. Its output is the reason, so a project
     says why in its own words; a non-zero exit with no output still denies."""
     if not gate.precondition:
         return None
+    # `FACTORY_LGTM` is how the command learns which merge this is. The hook waives its own
+    # excluded paths on an LGTM, and a project that moved that list into its Precondition has to be
+    # told, or the ban comes back through the back door and the developer's word means nothing.
+    # What the command must still refuse on an LGTM is its own business — a red CI, a deploy of the
+    # base branch already running — and only it knows those.
+    env = {**os.environ, "FACTORY_LGTM": "1" if on_lgtm else ""}
     try:
         out = subprocess.run(["bash", "-c", gate.precondition.replace("<number>", number)],
-                             cwd=repo, capture_output=True, text=True, timeout=90)
+                             cwd=repo, capture_output=True, text=True, timeout=90, env=env)
     except subprocess.TimeoutExpired:
         return "precondition timed out"
     if out.returncode == 0:
@@ -204,7 +210,7 @@ def judge(command: str, fetch_diff, gate: Gate, repo: Path = Path("."),
         refused = approval_failed(messages(), numbers[0], diff)
         if refused:
             return "deny", f"merge on LGTM: {refused}."
-    rule = precondition_failed(gate, numbers[0], repo)
+    rule = precondition_failed(gate, numbers[0], repo, on_lgtm)
     if rule:
         return "deny", (f"merge on LGTM: {rule}." if on_lgtm
                         else f"auto-merge gate: {rule}. Take the review path instead.")
