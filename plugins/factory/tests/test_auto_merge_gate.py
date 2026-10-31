@@ -10,8 +10,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import json
 import tempfile
 
-from auto_merge_gate import (Diff, Gate, approval_failed, ci_state, failed_rule,  # noqa: E402
-                             force_push, judge)
+from auto_merge_gate import (Diff, Gate, approval_absent, approval_failed,  # noqa: E402
+                             ci_state, failed_rule, force_push, judge)
 from review_presence import typed_by_developer  # noqa: E402
 from factory_common import developer_messages  # noqa: E402
 
@@ -340,6 +340,70 @@ class CiState(unittest.TestCase):
         self.assertEqual(ci_state([{"status": "COMPLETED", "conclusion": "SUCCESS"},
                                    {"status": "IN_PROGRESS"}]),
                          (False, True))
+
+def financial(**kw):
+    """A path no `excluded` list of the hook's own mentions — the ban on it lives in the
+    project's `Precondition`."""
+    return diff(files=("backend/app/services/financial_pipeline/fees.py",),
+                **{"head_committed": HEAD, **kw})
+
+
+class GuardsOnlyInThePrecondition(unittest.TestCase):
+    """The shape of the project this was built for: the guarded paths live in the `Precondition`
+    alone — one list, shared with the poller and the regen skill, rather than a third copy in the
+    profile — so `## Auto-merge` declares no excluded paths and `failed_rule` has nothing of its
+    own to fail. A worker reported on 2026-10-31 that `LGTM` then did nothing at all on such a
+    PR and it had to be merged with the button: the gate never read the word, so it never told
+    the `Precondition` whose merge this was."""
+
+    GATE = Gate(required_args=("--auto", "--squash"), excluded=(), lgtm_merge=True,
+                precondition='test "$FACTORY_LGTM" = 1 '
+                             '|| { echo "fees.py is on the guarded path list"; exit 1; }')
+
+    def test_an_lgtm_waives_a_ban_only_the_precondition_knows(self):
+        self.assertEqual(lgtm_verdict("gh pr merge --auto --squash 412", financial(),
+                                      [(AFTER, "LGTM")], gate=self.GATE),
+                         ("allow", "merging PR #412 on the developer's LGTM"))
+
+    def test_without_the_word_the_ban_holds_and_it_is_an_ordinary_auto_merge(self):
+        decision, reason = lgtm_verdict("gh pr merge --auto --squash 412", financial(), [],
+                                        gate=self.GATE)
+        self.assertEqual(decision, "deny")
+        self.assertIn("guarded path list", reason)
+        self.assertIn("review path", reason)
+
+    def test_a_hold_is_no_word_of_approval(self):
+        decision, reason = lgtm_verdict("gh pr merge --auto --squash 412", financial(),
+                                        [(AFTER, "LGTM"), (AFTER, "wait, not yet")], gate=self.GATE)
+        self.assertEqual(decision, "deny")
+        self.assertIn("guarded path list", reason)
+
+    def test_an_lgtm_while_the_checks_run_names_ci_and_not_the_path(self):
+        """Which reason the worker reads decides what it does next: CI is a wait, retried on
+        `ci-passed` with the same approval; a guarded path is a review that already happened."""
+        decision, reason = lgtm_verdict("gh pr merge --auto --squash 412",
+                                        financial(ci_unfinished=True), [(AFTER, "LGTM")],
+                                        gate=self.GATE)
+        self.assertEqual(decision, "deny")
+        self.assertIn("CI has not finished", reason)
+        self.assertNotIn("guarded path", reason)
+
+
+class TheWordAndTheState(unittest.TestCase):
+    """`approval_absent` answers whose merge this is, `approval_failed` whether it may run now.
+    Slurring them together is what hid the bug above: the word could not be read without also
+    judging the build."""
+
+    def test_the_word_alone_ignores_the_checks(self):
+        red = migration(ci_failed=True)
+        self.assertIsNone(approval_absent([(AFTER, "LGTM")], "412", red))
+        self.assertEqual(approval_failed([(AFTER, "LGTM")], "412", red), "CI failed on the head commit")
+
+    def test_no_word_is_the_same_answer_from_both(self):
+        self.assertEqual(approval_absent([], "412", migration()),
+                         "no LGTM from the developer in this conversation")
+        self.assertEqual(approval_failed([], "412", migration()),
+                         "no LGTM from the developer in this conversation")
 
 
 if __name__ == "__main__":
