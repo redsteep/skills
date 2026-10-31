@@ -154,8 +154,11 @@ in the Slack DM) and type. Events from the dispatcher start with `Factory event:
 3. **Merge on LGTM** (optional, profile `## Merge on LGTM`) — not auto-merge: your merge, run
    by the worker. The gate hook reads your `LGTM` from the worker's own transcript — a message you
    typed, never a peer's or the dispatcher's, newer than the PR's head commit, not followed by a
-   hold, CI neither failed nor still running — and only then lets the merge past the excluded
-   paths (and a stacked PR's `--merge`). A worker cannot approve on your behalf. Your word is a
+   hold — and lets the merge past the excluded paths (and a stacked PR's `--merge`), telling the
+   `Precondition` through `FACTORY_LGTM=1` so a ban kept there alone is waived as well. Your word
+   is read on every merge, not only on one the hook itself objected to: a project whose guarded
+   paths live in the `Precondition` gives the hook nothing to object to, and an LGTM that is
+   never read is an LGTM that does nothing. A worker cannot approve on your behalf. Your word is a
    standing one: when the checks have not finished (the usual case, since the push of your queued
    changes restarted them), the worker waits and merges on `ci-passed` without asking again —
    GitHub cannot be relied on to hold a merge for CI, so the worker is where that waiting lives.
