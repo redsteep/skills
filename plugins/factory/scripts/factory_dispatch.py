@@ -389,10 +389,7 @@ def decide(world: World) -> list:
     pending = [s for c in sorted(ready, key=lambda c: not started(c))
                if (s := _eligible_step(all_steps.get(c.short, []))) is not None
                and not _alive(world, s.worker)]
-    def holding(issue: bool) -> int:
-        return sum(1 for c in world.cards if (c.issue is not None) == issue
-                   for s in all_steps.get(c.short, []) if s.state != PENDING and _alive(world, s.worker))
-    held = {False: holding(False), True: holding(True)}
+    held = {False: slots_held(world, all_steps, False), True: slots_held(world, all_steps, True)}
     wip = {False: world.wip, True: world.issue_wip}
     issues_today = _issues_started_since(world, all_steps, world.now - timedelta(days=1)) if world.now else 0
     for step in under_way + pending:
@@ -440,6 +437,12 @@ def decide(world: World) -> list:
             if s.state == DONE and s.branch in world.branches and s.worker not in world.workers:
                 actions.append(Cleanup(None, s.branch, s.fix_prefix))
     return actions
+
+
+def slots_held(world: World, all_steps: dict, issues: bool) -> int:
+    """Slots of a pool (cards, or issues) held: started steps whose worker is alive (rule 4)."""
+    return sum(1 for c in world.cards if (c.issue is not None) == issues
+               for s in all_steps.get(c.short, []) if s.state != PENDING and _alive(world, s.worker))
 
 
 def _review_idle(step: Step, prs: list, world: World) -> list:
@@ -907,6 +910,37 @@ def render_prompt(template: str, repo: Path, profile: Profile, name: str, card: 
     return text
 
 
+def load_world(repo: Path, profile: Profile, record: bool = True) -> World:
+    """Everything `decide()` reads, gathered once: Trello, GitHub, git and the live workers.
+    Only the dispatcher records worker sightings; a read-only look (`factory-status --live`) does not."""
+    with sent_store() as sent:
+        sent_now = frozenset(sent)
+    label = profile.get("GitHub", "Label", "factory") or "factory"
+    cards = load_cards(profile)
+    adopted = {n for c in cards if c.ready for i in c.items or () if (n := adopted_number(i)) is not None}
+    issue_label = profile.get("Issues", "Label")
+    if issue_label:
+        cards += load_issues(repo, issue_label, profile.get("Issues", "Needs decision", "") or "")
+    workers = live_workers(record=record)
+    return World(
+        cards=cards,
+        prs=load_prs(repo, label, adopted),
+        branches=load_branches(repo),
+        workers=workers,
+        sent=sent_now,
+        wip=int(profile.get("Settings", "WIP", "3")),
+        label=label,
+        issue_wip=int(profile.get("Issues", "WIP", "1")),
+        issue_daily=int(daily) if (daily := profile.get("Issues", "Per day")) else None,
+        now=datetime.now(timezone.utc),
+        presence={name: last_developer_message(info.get("sessionId"))
+                  for name, info in workers.items() if info.get("pid")},
+        reviews=reviews_on(repo),
+        review_idle=timedelta(minutes=int(profile.get("Settings", "Review idle", "15"))),
+        version=INSTRUCTIONS,
+    )
+
+
 # --- main ------------------------------------------------------------------------------------------
 def main() -> int:
     ap = argparse.ArgumentParser(description="The factory dispatcher: one dispatch, then exit.")
@@ -928,45 +962,28 @@ def main() -> int:
 
     load_repo_secrets(repo)
     profile = Profile.load(repo)
-    with sent_store() as sent:
-        sent_now = frozenset(sent)
-    label = profile.get("GitHub", "Label", "factory") or "factory"
-    cards = load_cards(profile)
-    adopted = {n for c in cards if c.ready for i in c.items or () if (n := adopted_number(i)) is not None}
-    issue_label = profile.get("Issues", "Label")
-    if issue_label:
-        cards += load_issues(repo, issue_label, profile.get("Issues", "Needs decision", "") or "")
-    workers = live_workers(record=True)
-    world = World(
-        cards=cards,
-        prs=load_prs(repo, label, adopted),
-        branches=load_branches(repo),
-        workers=workers,
-        sent=sent_now,
-        wip=int(profile.get("Settings", "WIP", "3")),
-        label=label,
-        issue_wip=int(profile.get("Issues", "WIP", "1")),
-        issue_daily=int(daily) if (daily := profile.get("Issues", "Per day")) else None,
-        now=datetime.now(timezone.utc),
-        presence={name: last_developer_message(info.get("sessionId"))
-                  for name, info in workers.items() if info.get("pid")},
-        reviews=reviews_on(repo),
-        review_idle=timedelta(minutes=int(profile.get("Settings", "Review idle", "15"))),
-        version=INSTRUCTIONS,
-    )
+    world = load_world(repo, profile)
     execute = Executor(repo, profile, dry_run=args.dry_run)
-    failures = 0
-    for action in decide(world):
+    failed: list = []
+    actions = decide(world)
+    for action in actions:
         try:
             execute(action)
         except Exception as exc:  # one failed action must not stop the rest of the dispatch
-            failures += 1
+            failed.append((action, exc))
             print(f"factory: {action!r} failed: {exc}", file=sys.stderr)
             if isinstance(action, (StartStep, StartSplit)):
                 execute.ping_failed_start(action, exc)
     for line in execute.log:
         print(("would: " if args.dry_run else "did: ") + line)
-    return 1 if failures else 0
+    if not args.dry_run:
+        # What this dispatch saw and did, for `factory-status` and anything that shows it.
+        from factory_status import dispatch_status, write_status
+        try:
+            write_status(dispatch_status(world, actions, failed))
+        except Exception as exc:  # the status is a view: it never fails the dispatch
+            print(f"factory: status not written: {exc}", file=sys.stderr)
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

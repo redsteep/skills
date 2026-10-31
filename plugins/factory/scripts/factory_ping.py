@@ -25,7 +25,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from factory_common import (  # noqa: E402
-    Profile, live_workers, load_repo_secrets, run, sent_store, transcript_of, worker_title,
+    Profile, conversation_url, live_workers, load_repo_secrets, run, sent_store, worker_title,
 )
 
 FALLBACK_URL = "https://claude.ai/code"
@@ -62,15 +62,11 @@ def session_url(worker: str) -> str:
     agent = live_workers().get(worker)
     if not agent:
         return FALLBACK_URL
-    path = transcript_of(agent.get("sessionId") or "")
-    found = []
-    if path:
-        for line in path.read_text().splitlines():
-            if '"bridge_status"' in line or '"remote_session_change"' in line:
-                found += re.findall(r"https://claude\.ai/code/session_[A-Za-z0-9]+", line)
-    if not found:
-        found = re.findall(r"https://claude\.ai/code/session_[A-Za-z0-9]+",
-                           run(["claude", "logs", agent["id"]], check=False)) if agent.get("id") else []
+    url = conversation_url(agent.get("sessionId"))
+    if url:
+        return url
+    found = re.findall(r"https://claude\.ai/code/session_[A-Za-z0-9]+",
+                       run(["claude", "logs", agent["id"]], check=False)) if agent.get("id") else []
     return found[-1] if found else FALLBACK_URL
 
 

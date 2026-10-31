@@ -266,6 +266,21 @@ def transcript_of(session_id: str) -> Path | None:
     return found[0] if found else None
 
 
+_SESSION_URL = re.compile(r"https://claude\.ai/code/session_[A-Za-z0-9]+")
+
+
+def conversation_url(session_id: str | None) -> str | None:
+    """A session's Remote Control link, as its transcript records it for good (`bridge_status`,
+    `remote_session_change`): the latest one, or None."""
+    path = transcript_of(session_id) if session_id else None
+    found = []
+    if path:
+        for line in path.read_text().splitlines():
+            if '"bridge_status"' in line or '"remote_session_change"' in line:
+                found += _SESSION_URL.findall(line)
+    return found[-1] if found else None
+
+
 def last_developer_message(session_id: str | None) -> datetime | None:
     path = transcript_of(session_id) if session_id else None
     said = developer_messages(path) if path else []

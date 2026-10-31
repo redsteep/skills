@@ -63,7 +63,7 @@ class SessionUrl(unittest.TestCase):
             {"type": "system", "subtype": "bridge_status", "url": "https://claude.ai/code/session_01RC"}]))
         f.close()
         with mock.patch.object(factory_ping, "live_workers", return_value={"w": {"id": "x", "sessionId": "s"}}), \
-                mock.patch.object(factory_ping, "transcript_of", return_value=Path(f.name)), \
+                mock.patch.object(factory_common, "transcript_of", return_value=Path(f.name)), \
                 mock.patch.object(factory_ping, "run", return_value=""):
             self.assertEqual(factory_ping.session_url("w"), "https://claude.ai/code/session_01RC")
 

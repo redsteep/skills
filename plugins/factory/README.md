@@ -130,6 +130,14 @@ in the Slack DM) and type. Events from the dispatcher start with `Factory event:
 - **Pause:** `touch ~/.local/state/factory/PAUSED` — dispatches stop; workers keep their state.
   `rm` it to resume.
 - **Logs:** `journalctl --user -u factory-dispatch` (each dispatch prints what it did).
+- **Status:** `scripts/factory-status` — what the last dispatch saw: slots busy per pool, what
+  waits for you (with the worker's conversation link), every step under way and what it is doing
+  (`working`, `waits-you`, `waits-ci`, `waking`, `queued`, `no-worker`…), and what the dispatch
+  did. Each dispatch writes it to `~/.local/state/factory/status.json` after acting, from the same
+  reading of the world it routed by; `--json` prints that file (plus `paused`, `age_seconds`),
+  `--live <repo>` looks now without acting. A dashboard reads the JSON — it needs no rules of its
+  own. "Waits for you" is read from an idle worker on an unfinished step whose PR is not waiting
+  on CI and that hears no event this dispatch.
 - **Workers:** `claude agents` lists them; `claude attach <id>` opens one in a terminal.
 - **A worker with no process** (listed by `claude agents` but not running) counts as dead: its
   step gets a fresh worker, or its session is removed when the step is done. One seen alive in the
@@ -165,6 +173,7 @@ in the Slack DM) and type. Events from the dispatcher start with `Factory event:
 | `scripts/factory_dispatch.py` | the dispatcher; all routing is `decide()`, a pure function |
 | `scripts/auto_merge_gate.py` | the PreToolUse gate hook |
 | `scripts/factory_ping.py` | `factory-ping` — Slack DM, once per reason per step; `--factory` for the dispatcher's own notices |
+| `scripts/factory_status.py` | `factory-status [--json] [--live <repo>]` — the snapshot each dispatch writes |
 | `scripts/factory_lock.py` | `factory-lock acquire|release handoff|migration` |
 | `scripts/remove-step-worktree.sh` | non-interactive cleanup of a finished step |
 | `prompts/` | split, step and recovery worker prompts |
