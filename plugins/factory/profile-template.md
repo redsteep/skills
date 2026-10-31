@@ -103,8 +103,10 @@ Excluded paths — a trailing `/` means anything under it, otherwise a glob:
 Optional. Not auto-merge: the developer's own merge, which the worker runs for them. With it
 enabled, the developer's `LGTM` (or "merge") typed in a worker's conversation lets the worker
 merge the PR under review — past the excluded paths above, and with a merge commit for a PR
-another is stacked on. Only a message the developer typed after the PR's last commit counts; a
-later "wait" or "don't merge" cancels it. CI must have finished and be green: a red check refuses
+another is stacked on. A ban that lives in the **`Precondition`** instead of in the list above is
+waived too: the hook sets `FACTORY_LGTM=1` for it, which is how a project that keeps one path
+list rather than three lets the developer's word through. Only a message the developer typed
+after the PR's last commit counts; a later "wait" or "don't merge" cancels it. CI must have finished and be green: a red check refuses
 the merge, and checks still running make it a wait — the word stands, and the worker merges when
 they pass, without asking again. Leave it out to merge every reviewed PR yourself.
 
