@@ -951,6 +951,11 @@ def main() -> int:
 
     if PAUSE_FILE.exists() and not args.dry_run:
         print(f"factory: paused ({PAUSE_FILE})")
+        from factory_status import mark_paused
+        try:
+            mark_paused()
+        except Exception as exc:  # the status is a view: it never fails the dispatch
+            print(f"factory: status not written: {exc}", file=sys.stderr)
         return 0
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     lock = open(STATE_DIR / ".dispatch.lock", "w")

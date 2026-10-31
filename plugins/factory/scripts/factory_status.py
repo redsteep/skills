@@ -4,6 +4,8 @@
     factory-status                 a summary of ~/.local/state/factory/status.json
     factory-status --json          the snapshot itself, plus `paused` and `age_seconds`
     factory-status --live <repo>   a fresh look: gathers the world and decides, does nothing
+    factory-status --html          the status page (factory_page), as each dispatch writes it to
+                                   ~/.local/state/factory/www/index.html
 
 Every dispatch writes the snapshot after acting (`write_status`), from the same `World` and the
 same `card_steps` / `decide` it routed by — so the status never has rules of its own to drift
@@ -19,6 +21,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from factory_page import STALE_AFTER, render  # noqa: E402
 from factory_common import PAUSE_FILE, STATE_DIR, Profile, conversation_url, load_repo_secrets, split_name  # noqa: E402
 from factory_dispatch import (  # noqa: E402
     DONE, DROPPED_STATE, MERGED, PENDING, VERSION, Cleanup, QueueEmpty, Reinstruct, ReviewIdle,
@@ -27,8 +30,9 @@ from factory_dispatch import (  # noqa: E402
 )
 
 STATUS_FILE = STATE_DIR / "status.json"
+# The page alone, in a folder of its own: whatever serves it serves nothing else of the state.
+PAGE_FILE = STATE_DIR / "www" / "index.html"
 SCHEMA = 1
-STALE_AFTER = 10 * 60   # seconds: the timer dispatches every 2 minutes
 
 # What a step is doing, from the developer's side.
 WORKING, WAITS_YOU, WAITS_CI, WAKING, RESTARTING, STARTING, QUEUED, NO_WORKER, LATER = (
@@ -146,6 +150,7 @@ def snapshot(world: World, actions: list, failed: list = (), conversations: dict
                           "title": None, "worker": None, "conversation": None})
     return {
         "schema": SCHEMA,
+        "paused": False,
         "version": VERSION,
         "at": _iso(world.now),
         "pools": {
@@ -171,11 +176,27 @@ def dispatch_status(world: World, actions: list, failed: list) -> dict:
     return snapshot(world, actions, failed, conversations_of(world))
 
 
-def write_status(status: dict, path: Path = STATUS_FILE) -> None:
+def _write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(status, indent=1, ensure_ascii=False))
+    tmp.write_text(text)
     tmp.replace(path)
+
+
+def write_status(status: dict, path: Path = STATUS_FILE, page: Path = PAGE_FILE) -> None:
+    """The snapshot, and the page rendered from it."""
+    _write(path, json.dumps(status, indent=1, ensure_ascii=False))
+    _write(page, render(status))
+
+
+def mark_paused(path: Path = STATUS_FILE, page: Path = PAGE_FILE) -> None:
+    """A paused dispatch acts on nothing and writes no snapshot; the last one says it is paused,
+    so the page reads paused rather than stale. Resuming, the next dispatch writes a fresh one."""
+    if not path.is_file():
+        return
+    status = json.loads(path.read_text())
+    if not status.get("paused"):
+        write_status({**status, "paused": True}, path, page)
 
 
 def read_status(path: Path = STATUS_FILE, now: datetime | None = None) -> dict | None:
@@ -258,6 +279,7 @@ def live(repo: Path) -> dict:
 def main() -> int:
     ap = argparse.ArgumentParser(description="What the factory is doing, as the last dispatch saw it.")
     ap.add_argument("--json", action="store_true", help="print the snapshot as JSON")
+    ap.add_argument("--html", action="store_true", help="print the status page")
     ap.add_argument("--live", type=Path, metavar="REPO", help="look now instead of reading the last snapshot")
     args = ap.parse_args()
     status = live(args.live.resolve()) if args.live else read_status()
@@ -265,7 +287,8 @@ def main() -> int:
         print(f"factory-status: no snapshot yet ({STATUS_FILE}) — has a dispatch run? "
               "Try --live <repo>.", file=sys.stderr)
         return 2
-    print(json.dumps(status, indent=1, ensure_ascii=False) if args.json else summary(status))
+    print(json.dumps(status, indent=1, ensure_ascii=False) if args.json
+          else render(status) if args.html else summary(status))
     return 0
 
 

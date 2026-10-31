@@ -13,7 +13,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 import factory_status  # noqa: E402
 from factory_dispatch import decide  # noqa: E402
-from factory_status import read_status, snapshot, summary, write_status  # noqa: E402
+from factory_page import render  # noqa: E402
+from factory_status import mark_paused, read_status, snapshot, summary, write_status  # noqa: E402
+from dataclasses import replace  # noqa: E402
+from factory_dispatch import Item  # noqa: E402
 from test_dispatch import NOW, card, done, issue, pr, todo, world  # noqa: E402
 
 B1 = "feature/factory-c1-s1"
@@ -100,13 +103,14 @@ class File(unittest.TestCase):
     def setUp(self):
         self.dir = Path(tempfile.mkdtemp())
         self.path = self.dir / "status.json"
+        self.page = self.dir / "www" / "index.html"
         patch = mock.patch.object(factory_status, "PAUSE_FILE", self.dir / "PAUSED")
         patch.start()
         self.addCleanup(patch.stop)
 
     def test_the_reader_adds_age_and_pause(self):
         w = world([card("c1", [todo()])])
-        write_status(snapshot(w, decide(w)), self.path)
+        write_status(snapshot(w, decide(w)), self.path, self.page)
         (self.dir / "PAUSED").touch()
         status = read_status(self.path, now=NOW + timedelta(minutes=3))
         self.assertEqual((status["age_seconds"], status["paused"]), (180, True))
@@ -114,11 +118,26 @@ class File(unittest.TestCase):
 
     def test_an_old_snapshot_reads_stale(self):
         w = world([card("c1", [todo()])])
-        write_status(snapshot(w, decide(w)), self.path)
+        write_status(snapshot(w, decide(w)), self.path, self.page)
         self.assertIn("STALE", summary(read_status(self.path, now=NOW + timedelta(minutes=30))))
 
     def test_no_snapshot_yet(self):
         self.assertIsNone(read_status(self.path))
+        mark_paused(self.path, self.page)
+        self.assertFalse(self.page.exists())
+
+    def test_the_page_is_written_beside_nothing_else(self):
+        w = world([card("c1", [todo()])])
+        write_status(snapshot(w, decide(w)), self.path, self.page)
+        self.assertEqual([p.name for p in self.page.parent.iterdir()], ["index.html"])
+
+    def test_a_paused_dispatch_marks_the_last_snapshot_paused(self):
+        w = world([card("c1", [todo()])])
+        write_status(snapshot(w, decide(w)), self.path, self.page)
+        self.assertNotIn("paused</span>", self.page.read_text())
+        mark_paused(self.path, self.page)
+        self.assertTrue(json.loads(self.path.read_text())["paused"])
+        self.assertIn("paused</span>", self.page.read_text())
 
 
 class Summary(unittest.TestCase):
@@ -134,6 +153,36 @@ class Summary(unittest.TestCase):
         steps_part = text[text.index("Steps"):]
         self.assertLess(steps_part.index("Card c1 · 1/1 — waits-you · PR #5 open ci passed"),
                         steps_part.index("Card c2 · 1/1 — working"))
+
+
+
+class Page(unittest.TestCase):
+    def page(self, w, **kw):
+        return render(snapshot(w, decide(w), **kw))
+
+    def test_what_waits_for_you_leads_with_its_link(self):
+        w = world([card("c1", [todo()]), card("c2", [todo()])], prs=[pr(5, B1, ci="passed")],
+                  branches=[B1, "feature/factory-c2-s1"],
+                  workers={"factory-c1-s1": "idle", "factory-c2-s1": "busy"}, sent=["5:ci-passed:abc"])
+        html = self.page(w, conversations={"factory-c1-s1": "https://claude.ai/code/session_X"})
+        self.assertIn("<title>(1) factory</title>", html)
+        need = html[html.index('<div class="need'):html.index("<h2>Steps")]
+        self.assertIn("Card c1 · 1/1", need)
+        self.assertIn('href="https://claude.ai/code/session_X"', need)
+        table = html[html.index("<tbody>"):]
+        self.assertLess(table.index("waits for you"), table.index("working"))
+        self.assertIn("CI passed", table)
+
+    def test_names_are_escaped(self):
+        w = world([replace(card("c1", [Item("<script>x</script>", False)]), name="A & <b>")])
+        html = self.page(w)
+        self.assertNotIn("<script>x", html)
+        self.assertIn("A &amp; &lt;b&gt;", html)
+
+    def test_an_idle_factory_says_so(self):
+        html = self.page(world([]))
+        self.assertIn("Nothing waits for you.", html)
+        self.assertIn("Nothing under way.", html)
 
 
 if __name__ == "__main__":

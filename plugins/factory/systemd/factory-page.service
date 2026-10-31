@@ -1,0 +1,14 @@
+[Unit]
+Description=Factory status page — serves the page each dispatch writes, and nothing else
+
+[Service]
+# Only the www folder is served: the rest of ~/.local/state/factory stays private.
+# The page has no login of its own. Keep it on localhost and reach it through something that
+# authenticates — `tailscale serve --bg 8765` puts it on your tailnet over HTTPS — or bind
+# your tailnet address here instead of 127.0.0.1.
+ExecStartPre=/bin/mkdir -p %h/.local/state/factory/www
+ExecStart=/usr/bin/python3 -m http.server 8765 --bind 127.0.0.1 --directory %h/.local/state/factory/www
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
