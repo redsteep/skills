@@ -110,9 +110,15 @@ def _when(stamp: str) -> datetime:
     return datetime.fromisoformat(stamp.replace("Z", "+00:00"))
 
 
-def approval_failed(messages: list[tuple[str, str]], number: str, diff: Diff) -> str | None:
-    """Why the developer's word does not cover merging PR `number` at its current head, or None.
-    The latest message that says either way decides: an LGTM (or "merge"), or a hold."""
+def approval_absent(messages: list[tuple[str, str]], number: str, diff: Diff) -> str | None:
+    """Why the developer's own word does not cover merging PR `number` at its current head, or
+    None when it does. The latest message that says either way decides: an LGTM (or "merge"), or
+    a hold.
+
+    The word only. Whether the merge may happen *right now* is the next question and a separate
+    one (`approval_failed`): an LGTM is an intent that outlives a running build, and the two
+    answers are needed apart — one decides whose merge this is, the other whether it can proceed.
+    """
     for stamp, text in reversed(messages):
         named = _NUMBER.findall(text)
         if named and number not in named:
@@ -123,12 +129,22 @@ def approval_failed(messages: list[tuple[str, str]], number: str, diff: Diff) ->
             continue
         if diff.head_committed and stamp and _when(stamp) < _when(diff.head_committed):
             return "a commit was pushed after your LGTM — look again"
-        if diff.ci_failed:
-            return "CI failed on the head commit"
-        if diff.ci_unfinished:
-            return "CI has not finished on the head commit"
         return None
     return "no LGTM from the developer in this conversation"
+
+
+def approval_failed(messages: list[tuple[str, str]], number: str, diff: Diff) -> str | None:
+    """Why this merge may not run on the developer's word: the word itself, then the state of the
+    checks. A reason naming CI is a wait, not a refusal — the worker holds the approval and
+    retries when the checks go green."""
+    absent = approval_absent(messages, number, diff)
+    if absent:
+        return absent
+    if diff.ci_failed:
+        return "CI failed on the head commit"
+    if diff.ci_unfinished:
+        return "CI has not finished on the head commit"
+    return None
 
 
 def precondition_failed(gate: Gate, number: str, repo: Path, on_lgtm: bool = False) -> str | None:
@@ -203,14 +219,20 @@ def judge(command: str, fetch_diff, gate: Gate, repo: Path = Path("."),
     if len(numbers) != 1:
         return "deny", f"name the PR number explicitly: `{gate.shape}`"
     diff = fetch_diff(numbers[0])
+    said = messages() if gate.lgtm_merge else []
     rule = failed_rule(diff, gate)
-    on_lgtm = bool(rule) or merge_commit
+    # What makes a merge the developer's is **their word**, not whether the hook had an objection
+    # of its own. A project that keeps its guarded paths in the `Precondition` alone — one list
+    # instead of three — leaves `failed_rule` nothing to fail, and until 0.17.0 the LGTM was then
+    # never read: the Precondition refused, with `FACTORY_LGTM` unset, the very merge its owner
+    # had just approved, and said "take the review path instead" when the review had happened.
+    on_lgtm = bool(rule) or merge_commit or approval_absent(said, numbers[0], diff) is None
     if on_lgtm:
         if not gate.lgtm_merge or gate.required_label not in diff.labels:
             return "deny", f"auto-merge gate: {rule}. Take the review path instead."
         if merge_commit and not diff.stacked:
             return "deny", f"no PR is stacked on #{numbers[0]} — merge it with `{gate.shape}`"
-        refused = approval_failed(messages(), numbers[0], diff)
+        refused = approval_failed(said, numbers[0], diff)
         if refused:
             return "deny", f"merge on LGTM: {refused}."
     rule = precondition_failed(gate, numbers[0], repo, on_lgtm)
