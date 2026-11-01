@@ -105,11 +105,16 @@ in the Slack DM) and type. Events from the dispatcher start with `Factory event:
 3. **Secrets** — `TRELLO_API_KEY`, `TRELLO_TOKEN` and, optionally, `FACTORY_SLACK_TOKEN` (a **bot**
    token with `chat:write` and `im:write`; a DM from your own user would not notify you), from the
    environment, `~/.config/factory/env` (`chmod 600`), or the repo's `.env` — only these keys are
-   read from it. Without a Slack token there are no DMs: waiting workers show in the Claude app.
-4. **Plugin** — enable `factory@redsteep` in the repo's `.claude/settings.json` and run
+   read from it.
+4. **A channel for the pings** — Slack as above, or your own: `Settings` → **Ping command** in the
+   profile is any command, handed the message on stdin (see the profile template for the
+   environment it gets). A project with its own bot declares that instead of giving the factory a
+   Slack token. With neither, a waiting worker shows only in the Claude app — which notifies
+   nobody, and a question nobody sees stops the card it belongs to.
+5. **Plugin** — enable `factory@redsteep` in the repo's `.claude/settings.json` and run
    `claude plugin install factory@redsteep --scope project` (headless and background sessions
    only load plugins installed that way).
-5. **Requirements** — Claude Code ≥ 2.1.224 (cross-session messaging), logged in with claude.ai
+6. **Requirements** — Claude Code ≥ 2.1.224 (cross-session messaging), logged in with claude.ai
    (Remote Control does not work with an API key), `gh` authenticated, and whatever your
    worktree script needs. That script must accept `--base <ref> <name>` and check out an existing
    branch ref. The redsteep plugins `pre-pr-review`, `design-review` and `review-mode`.

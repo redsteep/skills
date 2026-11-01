@@ -19,6 +19,14 @@ Section and key names are read by code — keep them. Values in backticks.
 
 - **WIP:** `3`
 - **Slack user:** `<your Slack member id>` — factory-ping DMs this user
+- **Ping command:** `<command>` — optional, and the channel to declare when you have a bot of
+  your own. It gets the message as plain text on **stdin**, runs with the repository as its
+  working directory, and reads `FACTORY_PING_KIND` (`needs-you` | `done` | `factory`),
+  `FACTORY_PING_WORKER`, `FACTORY_PING_URL` (the worker's conversation) and `FACTORY_PING_PR`
+  from its environment. A non-zero exit is a ping **not** delivered: the reason is not recorded,
+  so the next worker on it tries again. Declared, it wins over Slack. With neither this nor a
+  Slack token nothing is sent and a waiting worker shows only in the Claude app, which notifies
+  nobody — so an unattended factory wants one of the two.
 - **Developer GitHub:** `<your GitHub login>` — an adopted PR by anyone else starts with the architecture gate
 - **Requester:** `<name>` `<Slack member id>` — who hears that a card is done
 - **Requester channel:** `<#channel>` `<channel id>`
