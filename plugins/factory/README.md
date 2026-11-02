@@ -152,18 +152,36 @@ in the Slack DM) and type. Events from the dispatcher start with `Factory event:
    the last step it drafts the card move and requester message and posts them on a yes; it does
    no cleanup (the dispatcher does). With `## Issues`, it also takes `issue=<n>`: the deploy check
    alone — no ping, no card, no message, no cleanup — reporting whether the change is live.
-6. **Dry run** — `scripts/factory-dispatch <repo> --dry-run` prints what one dispatch would do.
+7. **Dry run** — `scripts/factory-dispatch <repo> --dry-run` prints what one dispatch would do.
    Then walk one small card through by hand before the timer: run `factory-dispatch <repo>`
    yourself after each of your actions.
-7. **Timer** — copy `systemd/factory-dispatch.{service,timer}` to `~/.config/systemd/user/`, set
+8. **Timer** — copy `systemd/factory-dispatch.{service,timer}` to `~/.config/systemd/user/`, set
    `REPO_PATH` and `PATH` in the service, `systemctl --user daemon-reload`,
    `systemctl --user enable --now factory-dispatch.timer`. Needs `loginctl enable-linger`.
+9. **Status page** (optional) — each dispatch writes `~/.local/state/factory/www/index.html`.
+   To see it from your phone, copy `systemd/factory-page.service` too and
+   `systemctl --user enable --now factory-page.service` (it serves that folder alone on
+   `127.0.0.1:8765`), then `tailscale serve --bg 8765`. The page has no login of its own, so put it
+   behind something that has one.
 
 ## Operating it
 
 - **Pause:** `touch ~/.local/state/factory/PAUSED` — dispatches stop; workers keep their state.
   `rm` it to resume.
+- **Status page:** `~/.local/state/factory/www/index.html`, rewritten by every dispatch (setup step
+  9 serves it). What waits for you first, with a link to the worker's conversation; then the
+  slots, every step under way and what the dispatch did. It reloads every minute, reads **stale**
+  once nothing has rewritten it for ten minutes, and **paused** while you have paused the factory.
 - **Logs:** `journalctl --user -u factory-dispatch` (each dispatch prints what it did).
+- **Status:** `scripts/factory-status` — what the last dispatch saw: slots busy per pool, what
+  waits for you (with the worker's conversation link), every step under way and what it is doing
+  (`working`, `waits-you`, `waits-ci`, `waking`, `queued`, `no-worker`…), a card still to split
+  by its brief (`analysing`, `brief` — before you, `approved` — being cut), and what the dispatch
+  did. Each dispatch writes it to `~/.local/state/factory/status.json` after acting, from the same
+  reading of the world it routed by; `--json` prints that file (plus `paused`, `age_seconds`),
+  `--live <repo>` looks now without acting, `--html` prints the status page. A dashboard reads the
+  JSON — it needs no rules of its own. "Waits for you" is read from an idle worker on an
+  unfinished step whose PR is not waiting on CI and that hears no event this dispatch.
 - **Workers:** `claude agents` lists them; `claude attach <id>` opens one in a terminal.
 - **A worker with no process** (listed by `claude agents` but not running) counts as dead: its
   step gets a fresh worker, or its session is removed when the step is done. One seen alive in the
@@ -203,6 +221,9 @@ in the Slack DM) and type. Events from the dispatcher start with `Factory event:
 | `scripts/auto_merge_gate.py` | the PreToolUse gate hook |
 | `scripts/factory_ping.py` | `factory-ping` — Slack DM, once per reason per step; `--factory` for the dispatcher's own notices |
 | `scripts/factory_attach.py` | `factory-attach` — puts an approved card brief on the Trello card, replacing an earlier upload |
+| `scripts/factory_status.py` | `factory-status [--json] [--live <repo>]` — the snapshot each dispatch writes |
+| `scripts/factory_page.py` | the status page, rendered from the snapshot |
+| `systemd/factory-page.service` | serves the status page on localhost |
 | `scripts/factory_lock.py` | `factory-lock acquire|release handoff|migration` |
 | `scripts/remove-step-worktree.sh` | non-interactive cleanup of a finished step |
 | `prompts/` | split, analysis, step, recovery and resume worker prompts; `triage.md` and `analysis.md` also run alone |
