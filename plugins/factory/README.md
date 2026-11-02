@@ -74,6 +74,18 @@ or a closed PR still sits on its branch) gets a replacement only through a free 
 any new start; a merged step's replacement, there for the handoff, starts at once. Nothing is
 preempted: a slot once given stays with whoever has it.
 
+**A retired worker is resumed, not replaced.** A worker waiting for you sits at an idle prompt,
+and that is what the background daemon reclaims when the machine runs short of memory — on the
+box this was built for, 23 of 29 of its retirements, one after three minutes of silence. Its
+conversation holds what the world does not: the question it asked, your answer, and the `LGTM`
+the merge gate reads from that transcript and nowhere else. So when the daemon's log says it
+*retired* the session, the dispatcher continues it (`claude --bg --resume`, which keeps the id,
+the name and the context) and nudges it with `prompts/resumed.md` instead of re-reading the card
+from scratch. A session the daemon reports as **crashed** — its worktree removed under it — is
+replaced the old way: nobody knows what state it stopped in, and the worktree has to be rebuilt
+anyway. The world stays the source of truth either way; resuming only saves what was never
+written into it.
+
 **Review mode follows you.** A worker opens its PR and pings you; review mode stays off while
 you're away, so the worker keeps the PR healthy itself — rebases on a conflict, re-parents a
 migration head, fixes red CI — and tells you what it changed. Your first message in its

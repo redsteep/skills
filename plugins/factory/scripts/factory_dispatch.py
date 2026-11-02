@@ -328,6 +328,63 @@ def pr_events(pr: PR) -> list[tuple[str, str]]:
     return out
 
 
+DAEMON_LOG = Path.home() / ".claude/daemon.log"
+_RETIRE = re.compile(r"bg retire ([0-9a-f]{8}):")
+_SETTLED = re.compile(r"bg settled ([0-9a-f]{8}) \(([^)]+)\)")
+
+
+def daemon_log(limit: int = 200_000) -> str:
+    """The tail of the background daemon's own log, where it records why it ended a session."""
+    try:
+        with DAEMON_LOG.open("rb") as fh:
+            fh.seek(0, 2)
+            fh.seek(max(0, fh.tell() - limit))
+            return fh.read().decode("utf-8", "replace")
+    except OSError:
+        return ""
+
+
+def resumable_session(same_name: list[dict], log: str) -> str | None:
+    """The session of this worker to continue instead of starting a new one, or None.
+
+    A worker waiting for the developer sits at an idle prompt, and that is exactly what the
+    background daemon reclaims under memory pressure — measured 29.10–01.11: 23 of 29 of its
+    retirements were `idle-prompt`, 16 of them tagged `[low memory]`, one after three minutes of
+    silence. A replacement then re-reads the card, the branch and the PR (~90 s, ~100 calls) and
+    asks the developer a question the retired session had already asked. Worse, the developer's
+    `LGTM` lives in that conversation and nowhere else: the merge gate reads it from the
+    transcript, so a word said to a retired session is a word the replacement cannot see.
+
+    Resuming keeps all of it: `claude --bg --resume <session>` continues the same session, with
+    its id, its name — the dispatcher's routing key — and its context (measured, 2026-11-02).
+
+    Resumable is a retirement, not any death. A session the daemon reports as `crashed` stopped
+    in a state nobody knows: its worktree went away under it (`working directory no longer
+    exists`), and a fresh worker that rebuilds the worktree from the world is the right answer
+    there. A version skew is a retirement — resuming cures it, since the session comes back under
+    the current daemon.
+    """
+    dead = [a for a in same_name if not a.get("pid") and a.get("sessionId")]
+    if not dead:
+        return None
+    retired, crashed = set(), set()
+    for line in log.splitlines():
+        if m := _RETIRE.search(line):
+            retired.add(m[1])
+            crashed.discard(m[1])
+        elif m := _SETTLED.search(line):
+            # `retire` is followed by its own `settled (done)`; only `crashed` overrides.
+            if "crashed" in m[2]:
+                crashed.add(m[1])
+                retired.discard(m[1])
+    # Newest first: a worker may have several dead sessions, and only the last one knows the step.
+    for a in reversed(dead):
+        short = a["sessionId"][:8]
+        if short in retired and short not in crashed:
+            return a["sessionId"]
+    return None
+
+
 # --- the decision ----------------------------------------------------------------------------
 def _alive(world: World, name: str) -> bool:
     """Listed and not dead — a restarting worker counts, so it gets no twin."""
@@ -789,8 +846,21 @@ class Executor:
         same_name = [a for a in list_agents() if a["name"] == name]
         if any(a.get("pid") for a in same_name):
             raise RuntimeError(f"{name} is live again — not launching a twin")
+        resume = resumable_session(same_name, daemon_log())
+        if resume:
+            # Its conversation holds what the world does not: what it has already checked, the
+            # question it asked, and the developer's answer — including an `LGTM`, which the
+            # merge gate reads from this transcript and nowhere else. `--resume` keeps the id and
+            # the name, so the dispatcher's routing survives and no `--name` is needed.
+            run(["claude", "--bg", "--resume", resume, "--",
+                 render_prompt("resumed.md", self.repo, self.profile, name, **ctx)],
+                cwd=cwd, env={"FACTORY_WORKER": name, "FACTORY_REPO": str(self.repo)})
+            mark_launched(name)
+            return
         for agent in same_name:
             run(["claude", "stop", agent["id"]], check=False)
+            # `rm` deletes the session with its transcript. Only a session nobody will resume:
+            # the branch above returns before this loop.
             run(["claude", "rm", agent["id"]], check=False)
         prompt = render_prompt(template, self.repo, self.profile, name, **ctx)
         # A worker inherits the settings of the branch it sits on, and an adopted PR's branch can

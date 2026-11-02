@@ -15,7 +15,7 @@ from factory_dispatch import (  # noqa: E402
     takes_issue,
     DONE, DROPPED_STATE, FIXING, IN_PROGRESS, MERGED, PENDING, PR, Card, Cleanup, Item, Reinstruct, ReviewIdle, ReviewOff,
     Executor, MarkSent, QueueEmpty, SendEvent, Unsent, queue_key, StartSplit, StartStep, World, checked_out_at, decide, derive_step_state,
-    _pr, deny_list, display_name, issue_card, uncommitted,
+    _pr, deny_list, display_name, issue_card, resumable_session, uncommitted,
 )
 from factory_common import Profile  # noqa: E402
 
@@ -778,6 +778,58 @@ class ExistingWorktree(unittest.TestCase):
     def test_the_main_checkout_is_never_taken(self):
         with self.assertRaisesRegex(RuntimeError, "main checkout"):
             self.executor._existing_worktree("main")
+
+class ResumableSession(unittest.TestCase):
+    """Which death may be continued. A worker waiting for the developer sits at an idle prompt,
+    and that is what the background daemon reclaims under memory pressure — 23 of its 29
+    retirements over 29.10–01.11, one after three minutes of silence. Its conversation holds what
+    the world does not: the question it asked and the developer's answer, the `LGTM` included,
+    which the merge gate reads from that transcript and nowhere else."""
+
+    DEAD = [{"name": "factory-aB3d-s1", "id": "9567359d", "sessionId": "9567359d-1207-44df-8a82-89790eef9a9b"}]
+
+    def test_a_retired_session_is_resumed(self):
+        log = "[2026-10-31T17:19:53Z] [bg] bg retire 9567359d: settled, idle 3m [low memory]\n" \
+              "[2026-10-31T17:20:00Z] [bg] bg settled 9567359d (done)\n"
+        self.assertEqual(resumable_session(self.DEAD, log), "9567359d-1207-44df-8a82-89790eef9a9b")
+
+    def test_a_version_skew_is_a_retirement_too(self):
+        """Resuming cures it: the session comes back under the current daemon."""
+        log = "[2026-10-31T11:15:52Z] [bg] bg retire 9567359d: idle-prompt, idle 8h, " \
+              "worker 2.1.314 (daemon 2.1.316)\n[…] bg settled 9567359d (done)\n"
+        self.assertEqual(resumable_session(self.DEAD, log), "9567359d-1207-44df-8a82-89790eef9a9b")
+
+    def test_a_crash_starts_fresh(self):
+        """Measured 31.10: the nightly sweep removed a merged worktree with the worker still in
+        it. Nobody knows what half-done state that session stopped in, and the worktree itself is
+        gone — a new worker rebuilding it from the world is the right answer."""
+        log = "[2026-10-31T03:01:59Z] [bg] bg settled 9567359d (crashed): working directory no " \
+              "longer exists or is not accessible: /repo/.worktrees/factory-aB3d-s1\n"
+        self.assertIsNone(resumable_session(self.DEAD, log))
+
+    def test_a_crash_after_a_retirement_still_starts_fresh(self):
+        log = "[…] bg retire 9567359d: idle-prompt, idle 2h\n" \
+              "[…] bg settled 9567359d (crashed): working directory no longer exists\n"
+        self.assertIsNone(resumable_session(self.DEAD, log))
+
+    def test_a_session_the_log_says_nothing_about_starts_fresh(self):
+        self.assertIsNone(resumable_session(self.DEAD, "[…] bg retire 11111111: idle-prompt, idle 1h\n"))
+
+    def test_a_live_session_is_never_resumed(self):
+        """`_launch` refuses a twin of a live worker; this is the same rule one layer down."""
+        live = [{**self.DEAD[0], "pid": 4321}]
+        self.assertIsNone(resumable_session(live, "[…] bg retire 9567359d: idle-prompt, idle 3m\n"))
+
+    def test_the_newest_dead_session_wins(self):
+        """A worker can leave several dead sessions behind; only the last one knows the step."""
+        older = {"name": "factory-aB3d-s1", "id": "10810219", "sessionId": "10810219-1c0b-4622-9066-7b3c86552d2b"}
+        log = "[…] bg retire 10810219: idle-prompt, idle 44m [low memory]\n" \
+              "[…] bg retire 9567359d: settled, idle 3m [low memory]\n"
+        self.assertEqual(resumable_session([older, *self.DEAD], log),
+                         "9567359d-1207-44df-8a82-89790eef9a9b")
+
+    def test_no_dead_session_at_all(self):
+        self.assertIsNone(resumable_session([], "[…] bg retire 9567359d: idle-prompt, idle 3m\n"))
 
 
 if __name__ == "__main__":
