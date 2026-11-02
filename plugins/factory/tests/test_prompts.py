@@ -78,12 +78,13 @@ class Rendering(unittest.TestCase):
         from factory_dispatch import Item, Step, issue_card, render_prompt
         card = issue_card(7, "Issue 7", "https://github.com/o/r/issues/7", True)
         step = Step(card, 1, Item("fix it", False), "in-progress")
-        for template in ("step.md", "recovery.md", "split.md"):
+        for template in ("step.md", "recovery.md", "split.md", "resumed.md"):
             with self.subTest(template=template):
                 text = render_prompt(template, Path("/repo"), Profile(""), "factory-i7-s1", card=card, step=step,
                                      total=1, recovered="in-progress")
                 self.assertEqual(re.findall(r"\{[a-z_]+\}", text), [])
-                if template != "split.md":
+                if template not in ("split.md", "resumed.md"):
+                    # `resumed.md` carries no commands: the session it wakes already has them.
                     self.assertIn("factory-ping --worker factory-i7-s1", text)
 
 
