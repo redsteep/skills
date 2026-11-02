@@ -15,7 +15,8 @@ that line instead of against the problem. So the card is analysed first, and the
 settles what the analysis finds before anything is cut.
 
 1. **The brief may already exist** — `{brief}`, written by a worker before you. With an
-   `Approved-by:` line at its end, go to *Split*. Without one, it waits for the developer: run
+   `Approved-by:` line at its end, it is settled: if it says `Attach: yes`, run the upload
+   below (in case the worker before you died before it), then go to *Split*. Without one, it waits for the developer: run
    the ping in step 3 and end your turn.
 2. Otherwise one subagent analyses the card. Give it exactly the text between the two rules
    below, and nothing of your own — no reading of the card, no hypothesis, no "what I already
@@ -31,12 +32,19 @@ settles what the analysis finds before anything is cut.
 Then talk it through with the developer here. Their answers go into the brief as decided, with
 the reason; a question that sends you back to the data is answered from the data, through a
 subagent when it needs more than a query or two. **Cut nothing until the developer approves
-the brief** ("approved, split it" or plainly the same). On approval, record it at the end of the
-brief before anything else — a replacement worker has nothing else to read:
+the brief** ("approved, split it" or plainly the same). When you ask for the approval, ask too
+whether the brief goes on the card: attached, it is the requester's to read, so it takes the
+developer's own yes — "approved, split it, attach" — and a bare approval means no. On approval,
+record both at the end of the brief before anything else — a replacement worker has nothing else
+to read:
 
 ```
 Approved-by: <the developer>
+Attach: yes | no
 ```
+
+With `Attach: yes`, run `{attach} {brief}` — it replaces an earlier upload, so running it again
+is harmless — then go to *Split*.
 
 ## Split
 

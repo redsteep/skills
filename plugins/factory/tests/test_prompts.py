@@ -89,6 +89,12 @@ class CardAnalysis(unittest.TestCase):
         self.assertIn("Approved-by:", analysis)
         self.assertIn("card brief ready", analysis)
 
+    def test_the_brief_goes_on_the_card_only_on_the_developers_yes(self):
+        analysis = section(self.split, "Analysis")
+        self.assertIn("a bare approval means no", analysis)
+        self.assertIn("Attach: yes | no", analysis)
+        self.assertIn("{attach} {brief}", analysis)
+
     def test_the_analyst_gets_the_card_not_a_guess(self):
         self.assertIn("nothing of your own", section(self.split, "Analysis"))
 

@@ -28,7 +28,10 @@ subagent analyse the card — from the card alone, handed no guess — and write
 (code, scripts, stored prompts, history), every reader and writer of what changes, at least two
 approaches, what each makes irreversible, and adjacent problems — then findings, decisions for
 you, and a proposed split. You settle it in the split worker's conversation and approve it
-("approved, split it"); only then are the steps cut, and each step's spec reads the brief. The
+("approved, split it"); only then are the steps cut, and each step's spec reads the brief. Say
+"approved, split it, attach" and the approved brief also goes on the card as `card-brief.md`
+(`factory-attach`, with the factory's own Trello key from `.env`) — for the requester to read,
+so a bare approval keeps it local. The
 analysis prompt is `prompts/analysis.md`; where it may look (a read-only DB script, places the
 product keeps prompts) is the profile's `## Analysis` → `Sources`.
 
@@ -199,6 +202,7 @@ in the Slack DM) and type. Events from the dispatcher start with `Factory event:
 | `scripts/factory_dispatch.py` | the dispatcher; all routing is `decide()`, a pure function |
 | `scripts/auto_merge_gate.py` | the PreToolUse gate hook |
 | `scripts/factory_ping.py` | `factory-ping` — Slack DM, once per reason per step; `--factory` for the dispatcher's own notices |
+| `scripts/factory_attach.py` | `factory-attach` — puts an approved card brief on the Trello card, replacing an earlier upload |
 | `scripts/factory_lock.py` | `factory-lock acquire|release handoff|migration` |
 | `scripts/remove-step-worktree.sh` | non-interactive cleanup of a finished step |
 | `prompts/` | split, analysis, step, recovery and resume worker prompts; `triage.md` and `analysis.md` also run alone |

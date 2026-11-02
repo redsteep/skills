@@ -979,6 +979,8 @@ def render_prompt(template: str, repo: Path, profile: Profile, name: str, card: 
         # which the first launch started -- every later worker read that worker's FACTORY_WORKER.
         "ping": f'{shlex.quote(str(PLUGIN_ROOT / "scripts/factory-ping"))} --worker {name}',
         "lock": shlex.quote(str(PLUGIN_ROOT / "scripts/factory-lock")),
+        "attach": (f'{shlex.quote(str(PLUGIN_ROOT / "scripts/factory-attach"))} '
+                   f'--repo {shlex.quote(str(repo))} --card {card.id}'),
     }
     if "{step_prompt}" in text:
         values["step_prompt"] = render_prompt("step.md", repo, profile, name, card, step, total)
