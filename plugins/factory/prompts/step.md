@@ -80,10 +80,15 @@ reading: say in one line what needs doing and hold it until their go, their LGTM
 
 ## Spec
 
-1. Read the card, its checklist, and the specs and PRs of earlier steps.
+1. Read the card, its checklist, the card's brief `{brief}` (the analysis the developer approved
+   before the split — a card split before briefs existed has none), and the specs and PRs of
+   earlier steps.
 2. A subagent writes the spec for this step only, from the template {spec_template}, as
-   `{specs_dir}/<today>-<slug>-design.md`. Anything the card leaves open that changes
-   what gets built goes under *Open questions* — never guess a product decision.
+   `{specs_dir}/<today>-<slug>-design.md`. Hand it the step, the card and the brief — not your
+   own reading of them: a subagent handed a conclusion verifies it instead of testing it. The
+   brief's decisions are settled; one the code shows to be wrong is raised with the developer,
+   not quietly redesigned. Anything the card and the brief leave open that changes what gets
+   built goes under *Open questions* — never guess a product decision.
 3. Run the `design-review` skill (proposal mode) on it. Apply findings that are plainly right;
    any that need the developer join the open questions.
 4. Commit the spec and push the branch. **No PR for a spec**: a spec is a design to read, not a

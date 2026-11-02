@@ -44,6 +44,9 @@ INSTRUCTIONS = hashlib.sha256(b"".join(
     p.read_bytes() for p in sorted((PLUGIN_ROOT / "prompts").glob("*.md")))
     + Path(__file__).read_bytes()).hexdigest()[:12]
 DROPPED = "[dropped]"
+# A card's brief: the analysis its split worker writes and the developer approves before the
+# split. Outside the repo, so it rides on no branch; every worker is given the directory.
+BRIEFS_DIR = STATE_DIR / "briefs"
 
 # Step states (spec: "Step state — the one predicate every rule reads").
 PENDING, IN_PROGRESS, MERGED, FIXING, DONE, DROPPED_STATE = (
@@ -863,6 +866,7 @@ class Executor:
             # the branch above returns before this loop.
             run(["claude", "rm", agent["id"]], check=False)
         prompt = render_prompt(template, self.repo, self.profile, name, **ctx)
+        BRIEFS_DIR.mkdir(parents=True, exist_ok=True)
         # A worker inherits the settings of the branch it sits on, and an adopted PR's branch can
         # predate the repo enabling these plugins — no skills, no reviewer agents, no merge gate.
         # Loading the marketplace's plugins explicitly makes every worker carry them (no
@@ -872,6 +876,7 @@ class Executor:
         cmd = ["claude", "--bg", "--name", name, "--remote-control", title,
                "--plugin-dir", str(PLUGIN_ROOT.parent),
                "--permission-mode", self.profile.get("Settings", "Permission mode", "auto"),
+               "--add-dir", str(BRIEFS_DIR),
                "--disallowedTools", *deny_list(self.profile, issue=ctx["card"].issue is not None),
                "--", prompt]
         # `claude --bg` hands the session to a background daemon, started on demand by whoever
@@ -942,6 +947,8 @@ def render_prompt(template: str, repo: Path, profile: Profile, name: str, card: 
                         .replace("{DESCRIPTION}", "the PR's body (`gh pr view <n> --json body -q .body`)")
                         .replace("{SPEC}", "the step's spec, committed on this branch (none for an issue "
                                            "or an adopted PR)"))
+    # The analysis is its own template for the same reason: it can be run alone on a past card.
+    text = text.replace("{analysis}", (PLUGIN_ROOT / "prompts/analysis.md").read_text().strip())
     values = {
         "worker": name, "repo": str(repo), "plugin_root": str(PLUGIN_ROOT),
         "profile": str(repo / ".claude/factory.md"),
@@ -965,6 +972,9 @@ def render_prompt(template: str, repo: Path, profile: Profile, name: str, card: 
         "spec_template": profile.get("Repo", "Spec template", "") or "(none — use the repo's usual spec shape)",
         "specs_dir": profile.get("Repo", "Specs", "docs") or "docs",
         "handoff_skill": profile.get("Repo", "Handoff skill", "") or "",
+        "brief": str(BRIEFS_DIR / f"{card.short}.md"),
+        "analysis_sources": profile.text("Analysis", "Sources", "") or "the repo and its history; "
+                            "nothing that writes, sends or deploys",
         # Named here, not left to the env: `claude --bg` sessions inherit the env of the daemon,
         # which the first launch started -- every later worker read that worker's FACTORY_WORKER.
         "ping": f'{shlex.quote(str(PLUGIN_ROOT / "scripts/factory-ping"))} --worker {name}',

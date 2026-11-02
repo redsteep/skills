@@ -1,13 +1,13 @@
 # factory
 
-A software factory on your own box. You label a Trello card `ready`; the factory cuts it into
-steps (one step = one PR), and for each step a background Claude worker writes the spec, waits
+A software factory on your own box. You label a Trello card `ready`; the factory analyses it,
+and once you approve the analysis cuts it into steps (one step = one PR), and for each step a background Claude worker writes the spec, waits
 for your approval, builds, reviews, and hands off after you merge. At most **three factory PRs**
 are in flight, and a card's next step starts only once the previous one is green on staging — so
 your review stays the bottleneck by design.
 
-You make the decisions only you can make, from the Claude app on your Mac or phone: each step's
-spec, each PR's review and merge, "test it manually first?", and every message to the requester.
+You make the decisions only you can make, from the Claude app on your Mac or phone: each card's
+brief, each step's spec, each PR's review and merge, "test it manually first?", and every message to the requester.
 Whenever a step waits for you, its worker DMs you on Slack (👋 *Needs you*); when it does something
 on its own you'd want to know — an auto-merge, an issue closed as already done or skipped for a
 decision, an upkeep push, a flaky test recorded — it says so (✅ *Done*). Each DM names what the
@@ -19,6 +19,18 @@ Only the tiniest PRs skip your review: the worker may run the one merge command 
 declares, and a hook lets it through only when the PR passes the gate in your profile — its
 excluded paths and its `Precondition`, a command of yours that must exit 0 first. Start strict;
 relax the gate by editing the profile.
+
+**Every card is analysed before it is split.** A card says what hurts, guesses why, and proposes
+a fix; a split cut straight from it freezes the guess into its step lines, and every spec and
+review after that checks against the line, not the problem. So the split worker first has a
+subagent analyse the card — from the card alone, handed no guess — and write a **brief** to
+`~/.local/state/factory/briefs/<card>.md`: the symptom measured across every source, prior art
+(code, scripts, stored prompts, history), every reader and writer of what changes, at least two
+approaches, what each makes irreversible, and adjacent problems — then findings, decisions for
+you, and a proposed split. You settle it in the split worker's conversation and approve it
+("approved, split it"); only then are the steps cut, and each step's spec reads the brief. The
+analysis prompt is `prompts/analysis.md`; where it may look (a read-only DB script, places the
+product keeps prompts) is the profile's `## Analysis` → `Sources`.
 
 **Cards that already have PRs.** The split worker turns each open PR linked on the card into a
 step named `#<n> …`, and the factory adopts it instead of building it: no spec phase, the PR's own
@@ -57,6 +69,8 @@ systemd timer (2 min) → factory-dispatch (a script, no LLM): read GitHub, Trel
                          → start split / step / replacement workers   (claude --bg --remote-control)
                          → send status events to live workers         (cross-session messaging)
                          → clean up finished steps                    (the only cleanup owner)
+split worker (per card) → analysis (subagent, from the card alone) → brief → ping → approval
+                         → steps on the card's `Factory steps` checklist
 worker (one per step)  → spec (subagent) → design-review → spec on the branch → ping → approval
                          → build (subagents) → pre-pr-review → triage → ping or auto-merge
                          → on merge: the project's handoff skill, step=n/total → item checked → done
@@ -187,5 +201,5 @@ in the Slack DM) and type. Events from the dispatcher start with `Factory event:
 | `scripts/factory_ping.py` | `factory-ping` — Slack DM, once per reason per step; `--factory` for the dispatcher's own notices |
 | `scripts/factory_lock.py` | `factory-lock acquire|release handoff|migration` |
 | `scripts/remove-step-worktree.sh` | non-interactive cleanup of a finished step |
-| `prompts/` | split, step and recovery worker prompts |
+| `prompts/` | split, analysis, step, recovery and resume worker prompts; `triage.md` and `analysis.md` also run alone |
 | `tests/` | `python3 -m unittest discover -s plugins/factory/tests` |

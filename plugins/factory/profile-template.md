@@ -42,6 +42,12 @@ Section and key names are read by code — keep them. Values in backticks.
 - **Specs:** `<dir>` — where specs go
 - **Handoff skill:** `<skill name>` — run after each merge with `step=<n>/<total>` (README)
 
+## Analysis
+
+- **Sources:** <where a card's analysis may look beyond the repo, and what is off limits — e.g.
+  "production data through `<read-only query script>`; prompts the product stores in its DB;
+  never `<a database that bills for waking>`">
+
 ## Worktree
 
 - **Create:** `<script>` — `--base <ref> <name>` makes a new branch; a branch ref containing a

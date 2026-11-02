@@ -67,6 +67,42 @@ class Prompts(unittest.TestCase):
                 self.assertNotRegex(path.read_text(), r"gh pr merge\s+--")
 
 
+class CardAnalysis(unittest.TestCase):
+    """Measured on card 1tJsfZ93 (2026-10-30): the split wrote "the given name found in the
+    email's local part" into step 1, the spec worker handed its subagent that reading as "what I
+    already know — verify in code", and the spec measured only the source the card named. The
+    developer spent two hours of questions recovering what an analysis of the card finds from
+    the card alone: the symptom in four times as many contacts, prior art in two scripts, the
+    rendered emails that a contact fix never reaches."""
+
+    def setUp(self):
+        self.split = (PROMPTS / "split.md").read_text()
+        self.analysis = (PROMPTS / "analysis.md").read_text()
+
+    def test_the_card_is_analysed_before_it_is_split(self):
+        self.assertLess(self.split.index("## Analysis"), self.split.index("## Split"))
+        self.assertIn("{analysis}", section(self.split, "Analysis"))
+
+    def test_the_split_waits_for_the_approved_brief(self):
+        analysis = section(self.split, "Analysis")
+        self.assertIn("Cut nothing until the developer approves", analysis)
+        self.assertIn("Approved-by:", analysis)
+        self.assertIn("card brief ready", analysis)
+
+    def test_the_analyst_gets_the_card_not_a_guess(self):
+        self.assertIn("nothing of your own", section(self.split, "Analysis"))
+
+    def test_the_analyst_measures_the_symptom_beyond_the_named_source(self):
+        self.assertIn("across *every* source", self.analysis)
+        self.assertIn("Prior art", self.analysis)
+        self.assertIn("Readers and writers", self.analysis)
+
+    def test_the_spec_reads_the_brief_and_gets_no_conclusion(self):
+        spec = section((PROMPTS / "step.md").read_text(), "Spec")
+        self.assertIn("{brief}", spec)
+        self.assertIn("not your\n   own reading of them", spec)
+
+
 class Rendering(unittest.TestCase):
     """Every placeholder a template uses is filled: an unfilled one reaches the worker as literal
     text (`--label {label}` did, from the start until 0.13.0)."""
@@ -86,6 +122,19 @@ class Rendering(unittest.TestCase):
                 if template not in ("split.md", "resumed.md"):
                     # `resumed.md` carries no commands: the session it wakes already has them.
                     self.assertIn("factory-ping --worker factory-i7-s1", text)
+
+
+    def test_the_split_carries_the_analysis_with_the_profile_sources(self):
+        import sys
+        sys.path.insert(0, str(PROMPTS.parent / "scripts"))
+        from factory_common import Profile
+        from factory_dispatch import BRIEFS_DIR, Card, render_prompt
+        card = Card("c1", "abc123", "A card", "https://trello.com/c/abc123", True, None)
+        profile = Profile("## Analysis\n\n- **Sources:** the prod DB through `q.sh`\n")
+        text = render_prompt("split.md", Path("/repo"), profile, "factory-abc123-split", card=card)
+        self.assertIn("across *every* source", text)
+        self.assertIn("the prod DB through `q.sh`", text)
+        self.assertIn(str(BRIEFS_DIR / "abc123.md"), text)
 
 
 if __name__ == "__main__":
