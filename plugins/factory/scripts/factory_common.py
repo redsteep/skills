@@ -292,6 +292,14 @@ def live_workers(record: bool = False) -> dict[str, dict]:
     return workers
 
 
+def forget_seen(name: str) -> None:
+    """A worker stopped on purpose (shelved) is not restarting: it must not keep its slot for the
+    grace period a crash gets."""
+    seen = _read_seen()
+    if seen.pop(name, None) is not None:
+        _write_seen(seen)
+
+
 def mark_launched(name: str) -> None:
     """A just-launched worker counts as seen alive, so it is not replaced before it is listed."""
     seen = _read_seen()

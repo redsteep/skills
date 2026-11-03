@@ -16,13 +16,14 @@ from factory_dispatch import (  # noqa: E402
     DONE, DROPPED_STATE, FIXING, IN_PROGRESS, MERGED, PENDING, PR, Card, Cleanup, Item, Reinstruct, ReviewIdle, ReviewOff,
     Executor, MarkSent, QueueEmpty, SendEvent, Unsent, queue_key, StartSplit, StartStep, World, checked_out_at, decide, derive_step_state,
     _pr, deny_list, display_name, issue_card, resumable_session, uncommitted,
+    Shelve, hold_key,
 )
 from factory_common import Profile  # noqa: E402
 
 
-def card(short, items=None, ready=True):
+def card(short, items=None, ready=True, held=False):
     return Card(id=f"id-{short}", short=short, name=f"Card {short}", url=f"https://trello.com/c/{short}",
-                ready=ready, items=None if items is None else tuple(items))
+                ready=ready, items=None if items is None else tuple(items), held=held)
 
 
 def todo(name="step"):
@@ -801,6 +802,127 @@ class ExistingWorktree(unittest.TestCase):
     def test_the_main_checkout_is_never_taken(self):
         with self.assertRaisesRegex(RuntimeError, "main checkout"):
             self.executor._existing_worktree("main")
+
+class Hold(unittest.TestCase):
+    """A card on hold is postponed, not stopped. Removing `ready` was the only way to set a card
+    aside, and it deleted the step's branch (the committed spec with it) and the worker's
+    conversation (the questions asked, the answers given). On hold, nothing is cleaned up and
+    nothing starts; an idle worker is shelved and its slot freed; off hold, it is resumed."""
+
+    B = "feature/factory-a-s1"
+
+    def test_an_idle_worker_is_shelved_not_cleaned_up(self):
+        w = world([card("a", [todo()], held=True)], branches=[self.B], workers={"factory-a-s1": "idle"})
+        actions = decide(w)
+        self.assertIn(Shelve("factory-a-s1"), actions)
+        self.assertEqual([a for a in actions if isinstance(a, Cleanup)], [])
+
+    def test_hold_wins_over_a_removed_ready_label(self):
+        w = world([card("a", [todo()], ready=False, held=True)], branches=[self.B],
+                  workers={"factory-a-s1": "idle"})
+        actions = decide(w)
+        self.assertIn(Shelve("factory-a-s1"), actions)
+        self.assertEqual([a for a in actions if isinstance(a, Cleanup)], [])
+
+    def test_a_shelved_worker_is_not_cleaned_up_either(self):
+        w = world([card("a", [todo()], held=True)], branches=[self.B], workers={"factory-a-s1": "dead"})
+        self.assertEqual([a for a in decide(w) if isinstance(a, (Cleanup, StartStep, Shelve))], [])
+
+    def test_its_open_factory_prs_turn_to_drafts(self):
+        w = world([card("a", [todo()], held=True)], prs=[pr(5, self.B), pr(6, self.B + "-fix1", "CLOSED")],
+                  branches=[self.B], workers={"factory-a-s1": "idle"})
+        self.assertIn(Shelve("factory-a-s1", (5,)), decide(w))
+
+    def test_an_adopted_pr_is_someone_elses_and_stays_as_it_is(self):
+        p = replace(pr(12, "feat/orders"), labels=("factory",))
+        w = world([card("a", [todo("#12 Orders")], held=True)], prs=[p], workers={"factory-a-s1": "idle"})
+        self.assertIn(Shelve("factory-a-s1", ()), decide(w))
+
+    def test_a_busy_worker_is_told_to_wrap_up_once(self):
+        w = world([card("a", [todo()], held=True)], branches=[self.B], workers={"factory-a-s1": "busy"})
+        actions = decide(w)
+        self.assertEqual([a.key for a in actions if isinstance(a, SendEvent)], [hold_key("factory-a-s1")])
+        self.assertEqual([a for a in actions if isinstance(a, Shelve)], [])
+        again = decide(replace(w, sent=frozenset({hold_key("factory-a-s1")})))
+        self.assertEqual([a for a in again if isinstance(a, SendEvent)], [])
+
+    def test_a_held_worker_hears_no_pr_events(self):
+        w = world([card("a", [todo()], held=True)], prs=[pr(5, self.B, ci="failed")], branches=[self.B],
+                  workers={"factory-a-s1": "busy"}, sent=[hold_key("factory-a-s1")])
+        self.assertEqual([a for a in decide(w) if isinstance(a, SendEvent)], [])
+
+    def test_a_held_split_worker_is_shelved_and_no_split_starts(self):
+        w = world([card("a", held=True)], workers={"factory-a-split": "idle"})
+        actions = decide(w)
+        self.assertIn(Shelve("factory-a-split"), actions)
+        self.assertEqual([a for a in actions if isinstance(a, (StartSplit, Cleanup))], [])
+        self.assertEqual([a for a in decide(world([card("a", held=True)])) if isinstance(a, StartSplit)], [])
+
+    def test_nothing_of_a_held_card_starts_and_its_slot_goes_to_the_next(self):
+        w = world([card("a", [todo()], held=True), card("b", [todo()])], branches=[self.B], wip=1)
+        self.assertEqual(started(decide(w)), [("b", 1, None)])
+
+    def test_a_held_card_is_not_waiting_work(self):
+        w = world([card("a", [todo()], held=True)])
+        self.assertIn(QueueEmpty(False, 0, 3), decide(w))
+
+    def test_off_hold_the_step_gets_its_worker_back_and_the_notice_rearms(self):
+        w = world([card("a", [todo()])], branches=[self.B], sent=[hold_key("factory-a-s1")])
+        actions = decide(w)
+        self.assertEqual(started(actions), [("a", 1, IN_PROGRESS)])
+        self.assertIn(Unsent((hold_key("factory-a-s1"),)), actions)
+
+
+class Shelf(unittest.TestCase):
+    """What the executor keeps of a shelved worker, and how `_launch` picks it back up."""
+
+    def setUp(self):
+        import factory_dispatch
+        self.fd = factory_dispatch
+        self.tmp = Path(tempfile.mkdtemp())
+        self.saved = factory_dispatch.SHELF_FILE
+        factory_dispatch.SHELF_FILE = self.tmp / "shelved.json"
+
+    def tearDown(self):
+        self.fd.SHELF_FILE = self.saved
+        subprocess.run(["rm", "-rf", str(self.tmp)], check=True)
+
+    def test_a_shelved_session_is_resumable_without_a_retirement_in_the_log(self):
+        dead = [{"name": "factory-a-s1", "id": "9567359d", "sessionId": "9567359d-1207"}]
+        self.assertIsNone(resumable_session(dead, ""))
+        self.assertEqual(resumable_session(dead, "", "9567359d-1207"), "9567359d-1207")
+
+    def test_a_shelf_entry_whose_session_is_gone_resumes_nothing(self):
+        dead = [{"name": "factory-a-s1", "id": "11111111", "sessionId": "11111111-0000"}]
+        self.assertIsNone(resumable_session(dead, "", "9567359d-1207"))
+
+    def test_the_shelf_round_trip(self):
+        self.fd.shelve("factory-a-s1", "sess-1", [5])
+        entry = self.fd.shelved_entry("factory-a-s1")
+        self.assertEqual((entry["session"], entry["drafts"]), ("sess-1", [5]))
+        self.fd.unshelve("factory-a-s1")
+        self.assertIsNone(self.fd.shelved_entry("factory-a-s1"))
+
+    def test_launch_resumes_a_shelved_worker_with_the_unshelved_prompt(self):
+        from unittest import mock
+        self.fd.shelve("factory-a-s1", "sess-1", [5])
+        calls = []
+        agents = [{"name": "factory-a-s1", "id": "sess", "sessionId": "sess-1"}]
+        c = card("a", [todo()])
+        step = self.fd.Step(c, 1, todo(), IN_PROGRESS)
+        with mock.patch.object(self.fd, "list_agents", return_value=agents), \
+                mock.patch.object(self.fd, "daemon_log", return_value=""), \
+                mock.patch.object(self.fd, "mark_launched"), \
+                mock.patch.object(self.fd, "run", side_effect=lambda cmd, **kw: calls.append(cmd) or ""):
+            Executor(Path("/repo"), Profile(""))._launch("factory-a-s1", Path("/repo"), "recovery.md",
+                                                       "t", card=c, step=step, total=1, recovered=IN_PROGRESS)
+        self.assertEqual(calls[0][:4], ["claude", "--bg", "--resume", "sess-1"])
+        self.assertIn("on hold", calls[0][-1])
+        self.assertNotIn("{shelved_at}", calls[0][-1])
+        self.assertIn(["gh", "pr", "ready", "5"], calls)
+        self.assertFalse(any("rm" in c for c in calls))
+        self.assertIsNone(self.fd.shelved_entry("factory-a-s1"))
+
 
 class ResumableSession(unittest.TestCase):
     """Which death may be continued. A worker waiting for the developer sits at an idle prompt,

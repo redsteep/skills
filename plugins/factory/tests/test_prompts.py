@@ -156,12 +156,14 @@ class Rendering(unittest.TestCase):
         from factory_dispatch import Item, Step, issue_card, render_prompt
         card = issue_card(7, "Issue 7", "https://github.com/o/r/issues/7", True)
         step = Step(card, 1, Item("fix it", False), "in-progress")
-        for template in ("step.md", "recovery.md", "split.md", "resumed.md"):
+        for template in ("step.md", "recovery.md", "split.md", "resumed.md", "unshelved.md"):
             with self.subTest(template=template):
                 text = render_prompt(template, Path("/repo"), Profile(""), "factory-i7-s1", card=card, step=step,
                                      total=1, recovered="in-progress")
+                text = text.replace("{shelved_at}", "2026-11-03")  # filled by `_launch`, from the shelf
                 self.assertEqual(re.findall(r"\{[a-z_]+\}", text), [])
                 if template not in ("split.md", "resumed.md"):
+                    # `unshelved.md` pings: the open question is re-asked once after a hold.
                     # `resumed.md` carries no commands: the session it wakes already has them.
                     self.assertIn("factory-ping --worker factory-i7-s1", text)
 
@@ -178,6 +180,20 @@ class Rendering(unittest.TestCase):
         self.assertIn("the prod DB through `q.sh`", text)
         self.assertIn(str(BRIEFS_DIR / "abc123.md"), text)
         self.assertIn("scripts/factory-download --repo /repo --card c1 --out ", text)
+
+    def test_a_postpone_is_a_hold_never_a_stop(self):
+        """The one way to postpone was removing `ready`, which deletes the branch, the spec and
+        the worker's conversation. A worker told to postpone must hold the card instead."""
+        import sys
+        sys.path.insert(0, str(PROMPTS.parent / "scripts"))
+        from factory_common import Profile
+        from factory_dispatch import Card, Item, Step, render_prompt
+        card = Card("c1", "abc123", "A card", "https://trello.com/c/abc123", True, (Item("x", False),))
+        for template, step in (("step.md", Step(card, 1, Item("x", False), "in-progress")), ("split.md", None)):
+            with self.subTest(template=template):
+                text = render_prompt(template, Path("/repo"), Profile(""), "factory-abc123-s1", card=card, step=step)
+                self.assertIn("scripts/factory-hold --repo /repo --card c1", text)
+                self.assertIn("on-hold", text)
 
 
 if __name__ == "__main__":

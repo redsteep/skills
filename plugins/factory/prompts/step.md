@@ -24,6 +24,12 @@ read what was decided. Repo rules: {rules}. Profile: `{profile}`.
   on its own (the PR link, checking your item). GitHub issues in this repo are the factory's own
   bookkeeping, not messages: file, edit, comment on and close them where these instructions say
   to (a flaky test, an issue already done or needing a decision, your step list) without asking.
+- **Postpone.** When the developer says to put the card on hold, postpone or shelve it (not to
+  stop or drop it), run `{hold}` and end your turn with one line saying so. On hold nothing is
+  lost: your branch, spec and this conversation are kept, and you are resumed here when they take
+  it off hold (`{hold} --off`, or the label removed on the board). Stopping a card — removing
+  `ready` — deletes the branch and this conversation; never do that for a postpone.
+  A GitHub issue has no hold: tell the developer to take the factory's label off the issue instead.
 - Build only step {step_n}. Your item is on {item_home}; the other steps, if any, are context.
 
 ## Events
@@ -58,6 +64,9 @@ If the re-run fails the same way, it is not flaky: treat it as a real failure.
 - `conflict PR #n` → upkeep: on your own factory branch, rebase on `origin/{base}` (regenerate
   what needs it: a migration head, generated code) and `git push --force-with-lease`; on an
   adopted PR's branch — someone else's — merge `origin/{base}` in instead and push.
+- `on-hold` → the developer postponed the card. Bring what you are doing to a safe point — a
+  subagent's work committed, nothing half-written — push it, and end your turn without a ping:
+  the dispatcher stops you once you are idle and resumes this conversation when the hold lifts.
 - `review-idle <branch>` → the developer left the review; the dispatcher turned review mode off.
   Treat it as their go: apply the changes they queued (the event names the file the queue moved
   to) the way their go-ahead would — re-run pre-pr-review, push — and do the upkeep you held.
