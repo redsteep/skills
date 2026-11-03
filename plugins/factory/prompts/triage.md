@@ -4,8 +4,9 @@ Decide from the finished change whether the developer needs to read the code bef
 - **Its description**, with pre-pr-review's results: {DESCRIPTION}
 - **Its spec:** {SPEC}
 
-**Auto-merge** only when all hold: the change is tiny and plainly safe; pre-pr-review ended with
-nothing open; the spec had no open questions when it was approved. Any doubt → review. Your
+**Auto-merge** only when both hold: the change is tiny and plainly safe; pre-pr-review ended with
+nothing open. Questions the spec raised were settled when the developer approved it — they don't
+count against the merge. Any doubt → review. Your
 judgement may only send a PR to review, never past it: after you, a hook checks the project's own
 gate — the excluded paths and the profile's `Precondition` — and refuses whatever breaks it.
 
