@@ -164,18 +164,27 @@ in the Slack DM) and type. Events from the dispatcher start with `Factory event:
 8. **Timer** — copy `systemd/factory-dispatch.{service,timer}` to `~/.config/systemd/user/`, set
    `REPO_PATH` and `PATH` in the service, `systemctl --user daemon-reload`,
    `systemctl --user enable --now factory-dispatch.timer`. Needs `loginctl enable-linger`.
-9. **Status page** (optional) — each dispatch writes `~/.local/state/factory/www/index.html`.
-   To see it from your phone, copy `systemd/factory-page.service` too and
-   `systemctl --user enable --now factory-page.service` (it serves that folder alone on
-   `127.0.0.1:8765`), then `tailscale serve --bg 8765`. The page has no login of its own, so put it
-   behind something that has one.
+9. **Status page on your Mac and phone** (optional) — each dispatch writes the page, its
+   `status.json`, a web app manifest and icons into `~/.local/state/factory/www/`, a folder of
+   their own. Tailscale serves the folder itself, so there is no web server to run:
+   `tailscale serve --bg ~/.local/state/factory/www` (it stays up across reboots; it needs a
+   Tailscale that serves a path, not only a port — else `systemd/factory-page.service` serves
+   the folder on `127.0.0.1:8765` for `tailscale serve --bg 8765`). The page has no login of its
+   own: the tailnet is what keeps it private. Then:
+   - **profile** `Settings` → **Status page**: the `https://<box>.<tailnet>.ts.net` it printed —
+     every ping links it;
+   - **phone**: open that URL, *Share → Add to Home Screen*; it opens full screen, as an app;
+   - **Mac menu bar**: install [SwiftBar](https://swiftbar.app), put `macos/factory.1m.py` in its
+     plugin folder (`chmod +x`), and write the same URL to `~/.config/factory/menubar-url`. The
+     title is how many things wait for you (🏭 2; ⏸ paused, ⚠ stale); its menu opens each one's
+     conversation, lists every step under way and opens the page.
 
 ## Operating it
 
 - **Pause:** `touch ~/.local/state/factory/PAUSED` — dispatches stop; workers keep their state.
   `rm` it to resume.
 - **Status page:** `~/.local/state/factory/www/index.html`, rewritten by every dispatch (setup step
-  9 serves it). What waits for you first, with a link to the worker's conversation; then the
+  9 puts it on your phone's home screen and in your Mac's menu bar). What waits for you first, with a link to the worker's conversation; then the
   slots, every step under way and what the dispatch did. It reloads every minute, reads **stale**
   once nothing has rewritten it for ten minutes, and **paused** while you have paused the factory.
 - **Logs:** `journalctl --user -u factory-dispatch` (each dispatch prints what it did).
@@ -230,7 +239,9 @@ in the Slack DM) and type. Events from the dispatcher start with `Factory event:
 | `scripts/factory_download.py` | `factory-download` — fetches a card's uploaded files (screenshots, mockups) for the analyst and the spec writer, with the key from `.env` |
 | `scripts/factory_status.py` | `factory-status [--json] [--live <repo>]` — the snapshot each dispatch writes |
 | `scripts/factory_page.py` | the status page, rendered from the snapshot |
-| `systemd/factory-page.service` | serves the status page on localhost |
+| `systemd/factory-page.service` | serves the status page on localhost, where `tailscale serve` cannot serve the folder |
+| `www/` | the status page's icons, copied beside it |
+| `macos/factory.1m.py` | the Mac menu bar: a SwiftBar plugin reading the page's `status.json` |
 | `scripts/factory_lock.py` | `factory-lock acquire|release handoff|migration` |
 | `scripts/remove-step-worktree.sh` | non-interactive cleanup of a finished step |
 | `prompts/` | split, analysis, step, recovery and resume worker prompts; `triage.md` and `analysis.md` also run alone |

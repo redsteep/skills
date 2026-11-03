@@ -159,7 +159,13 @@ class File(unittest.TestCase):
     def test_the_page_is_written_beside_nothing_else(self):
         w = world([card("c1", [todo()])])
         write_status(snapshot(w, decide(w)), self.path, self.page)
-        self.assertEqual([p.name for p in self.page.parent.iterdir()], ["index.html"])
+        self.assertEqual(sorted(p.name for p in self.page.parent.iterdir()),
+                         ["apple-touch-icon.png", "icon-512.png", "index.html", "manifest.webmanifest",
+                          "status.json"])
+        self.assertEqual(json.loads((self.page.parent / "status.json").read_text()), json.loads(self.path.read_text()))
+        manifest = json.loads((self.page.parent / "manifest.webmanifest").read_text())
+        self.assertTrue(all((self.page.parent / i["src"]).is_file() for i in manifest["icons"]))
+        self.assertIn('rel="manifest"', self.page.read_text())
 
     def test_a_paused_dispatch_marks_the_last_snapshot_paused(self):
         w = world([card("c1", [todo()])])

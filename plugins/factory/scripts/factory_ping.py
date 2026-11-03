@@ -52,29 +52,32 @@ _PR = re.compile(r"\bPR #(\d+)")
 _HEAD = {False: ("👋", "Needs you"), True: ("✅", "Done")}
 
 
-def message(reason: str, title: str, url: str, pr_url: str | None = None, done: bool = False) -> str:
+def message(reason: str, title: str, url: str, pr_url: str | None = None, done: bool = False,
+            dashboard: str | None = None) -> str:
     """Slack mrkdwn, not markdown: *bold*, <url|text>. What happened first, then what it is about,
-    then where to look."""
+    then where to look — the status page last, for the rest of the factory."""
     icon, word = _HEAD[done]
-    links = ([f"<{pr_url}|PR #{_PR.search(reason)[1]}>"] if pr_url else []) + [f"<{url}|Open the conversation>"]
+    links = ([f"<{pr_url}|PR #{_PR.search(reason)[1]}>"] if pr_url else []) + [f"<{url}|Open the conversation>"] \
+        + ([f"<{dashboard}|Status page>"] if dashboard else [])
     return f"{icon} *{word}* — {reason.strip()}\n{title}\n{'  ·  '.join(links)}"
 
 
-def plain_message(reason: str, title: str, url: str, pr_url: str | None = None, done: bool = False) -> str:
+def plain_message(reason: str, title: str, url: str, pr_url: str | None = None, done: bool = False,
+                  dashboard: str | None = None) -> str:
     """The same three lines without Slack's markup, for a `Ping command` channel. Every link on
     its own line: a client that auto-links bare URLs finds them, and one that does not still
     shows something a human can copy."""
     icon, word = _HEAD[done]
-    links = ([pr_url] if pr_url else []) + [url]
+    links = ([pr_url] if pr_url else []) + [url] + ([dashboard] if dashboard else [])
     return f"{icon} {word} — {reason.strip()}\n{title}\n" + "\n".join(links)
 
 
-def factory_message(notice: str) -> str:
-    return f"📭 *Queue empty* — {notice.strip()}"
+def factory_message(notice: str, dashboard: str | None = None) -> str:
+    return f"📭 *Queue empty* — {notice.strip()}" + (f"\n<{dashboard}|Status page>" if dashboard else "")
 
 
-def plain_factory_message(notice: str) -> str:
-    return f"📭 Queue empty — {notice.strip()}"
+def plain_factory_message(notice: str, dashboard: str | None = None) -> str:
+    return f"📭 Queue empty — {notice.strip()}" + (f"\n{dashboard}" if dashboard else "")
 
 
 def pr_url(reason: str) -> str | None:
@@ -109,12 +112,12 @@ def slack(token: str, method: str, payload: dict) -> dict:
 
 
 def ping_command(command: str, repo: Path, text: str, *, kind: str, worker: str = "",
-                 url: str = "", pr: str = "") -> None:
+                 url: str = "", pr: str = "", dashboard: str = "") -> None:
     """Run the project's `Ping command` with the message on stdin. A non-zero exit raises, so the
     reason is not recorded as sent and the next worker on the same reason tries again — a ping
     nobody received must not count as delivered."""
     env = {**os.environ, "FACTORY_PING_KIND": kind, "FACTORY_PING_WORKER": worker,
-           "FACTORY_PING_URL": url, "FACTORY_PING_PR": pr or ""}
+           "FACTORY_PING_URL": url, "FACTORY_PING_PR": pr or "", "FACTORY_PING_DASHBOARD": dashboard or ""}
     done = subprocess.run(["bash", "-c", command], input=text, text=True, cwd=repo, env=env,
                           capture_output=True, timeout=60)
     if done.returncode != 0:
@@ -122,7 +125,7 @@ def ping_command(command: str, repo: Path, text: str, *, kind: str, worker: str 
                            f"{(done.stderr or done.stdout).strip()[:300]}")
 
 
-def send(worker: str, reason: str, post, done: bool = False, fmt=message) -> bool:
+def send(worker: str, reason: str, post, done: bool = False, fmt=message, dashboard: str | None = None) -> bool:
     """Post unless this reason was already pinged for this step; True when posted."""
     key = ping_key(worker, reason)
     with sent_store() as sent:
@@ -130,7 +133,7 @@ def send(worker: str, reason: str, post, done: bool = False, fmt=message) -> boo
             return False
         title = worker_title(worker) or worker
         url, pr = session_url(worker), pr_url(reason)
-        post(fmt(reason, title, url, pr, done), url=url, pr=pr)
+        post(fmt(reason, title, url, pr, done, dashboard), url=url, pr=pr)
         sent.add(key)
     return True
 
@@ -149,6 +152,8 @@ def main() -> int:
     command = (profile.get("Settings", "Ping command", "") or "").strip("`")
     token = os.environ.get("FACTORY_SLACK_TOKEN")
     kind = "factory" if args.factory else ("done" if args.done else "needs-you")
+    # Where the whole factory is shown: every ping links it, so the rest is one tap away.
+    dashboard = (profile.get("Settings", "Status page", "") or "").strip("`") or None
 
     if command:
         # A project's own channel wins: it was declared on purpose, and a Slack token may be
@@ -156,7 +161,8 @@ def main() -> int:
         fmt, factory_fmt = plain_message, plain_factory_message
 
         def post(text: str, url: str = "", pr: str = "") -> None:
-            ping_command(command, repo, text, kind=kind, worker=args.worker or "", url=url, pr=pr)
+            ping_command(command, repo, text, kind=kind, worker=args.worker or "", url=url, pr=pr,
+                         dashboard=dashboard or "")
     elif token:
         user = profile.require("Settings", "Slack user")
         fmt, factory_fmt = message, factory_message
@@ -173,10 +179,10 @@ def main() -> int:
         return 0
 
     if args.factory:
-        post(factory_fmt(args.reason))
+        post(factory_fmt(args.reason, dashboard))
         print("factory-ping: sent")
         return 0
-    posted = send(args.worker, args.reason, post, args.done, fmt)
+    posted = send(args.worker, args.reason, post, args.done, fmt, dashboard)
     print("factory-ping: sent" if posted else "factory-ping: already sent for this step, skipped")
     return 0
 

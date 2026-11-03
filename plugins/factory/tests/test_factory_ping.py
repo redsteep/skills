@@ -126,6 +126,15 @@ class PlainMessage(unittest.TestCase):
             factory_ping.plain_message("issue #121 closed", "Card · 1/2", URL, None, done=True),
             f"✅ Done — issue #121 closed\nCard · 1/2\n{URL}")
 
+    def test_the_status_page_comes_last_when_the_profile_names_one(self):
+        self.assertEqual(
+            factory_ping.plain_message("PR #9 ready for review", "Card · 1/2", URL, PR_URL, dashboard="https://box.ts.net"),
+            f"👋 Needs you — PR #9 ready for review\nCard · 1/2\n{PR_URL}\n{URL}\nhttps://box.ts.net")
+        self.assertTrue(factory_ping.message("PR #9 ready", "Card", URL, None, dashboard="https://box.ts.net")
+                        .endswith("<https://box.ts.net|Status page>"))
+        self.assertEqual(factory_ping.factory_message("nothing ready", "https://box.ts.net"),
+                         "📭 *Queue empty* — nothing ready\n<https://box.ts.net|Status page>")
+
     def test_the_factory_notice_too(self):
         self.assertEqual(factory_ping.plain_factory_message("nothing ready"), "📭 Queue empty — nothing ready")
 

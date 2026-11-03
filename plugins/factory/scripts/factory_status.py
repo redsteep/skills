@@ -16,12 +16,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from factory_page import STALE_AFTER, render  # noqa: E402
+from factory_page import MANIFEST, STALE_AFTER, render  # noqa: E402
 from factory_common import PAUSE_FILE, STATE_DIR, Profile, conversation_url, load_repo_secrets, split_name  # noqa: E402
 from factory_dispatch import (  # noqa: E402
     BRIEFS_DIR, DONE, DROPPED_STATE, MERGED, PENDING, VERSION, Cleanup, QueueEmpty, Reinstruct, ReviewIdle,
@@ -32,6 +33,7 @@ from factory_dispatch import (  # noqa: E402
 STATUS_FILE = STATE_DIR / "status.json"
 # The page alone, in a folder of its own: whatever serves it serves nothing else of the state.
 PAGE_FILE = STATE_DIR / "www" / "index.html"
+ICONS = Path(__file__).resolve().parent.parent / "www"   # the page's icons, copied beside it
 SCHEMA = 1
 
 # What a step is doing, from the developer's side.
@@ -226,8 +228,19 @@ def _write(path: Path, text: str) -> None:
 
 
 def write_status(status: dict, path: Path = STATUS_FILE, page: Path = PAGE_FILE) -> None:
-    """The snapshot, and the page rendered from it."""
-    _write(path, json.dumps(status, indent=1, ensure_ascii=False))
+    """The snapshot, and beside the page what a viewer of it fetches: the snapshot again (the
+    Mac menu bar reads it), the web app manifest and its icons — the folder is all that is
+    served, so it holds everything the page needs and nothing else."""
+    text = json.dumps(status, indent=1, ensure_ascii=False)
+    _write(path, text)
+    www = page.parent
+    _write(www / "status.json", text)
+    _write(www / "manifest.webmanifest", json.dumps(MANIFEST, indent=1))
+    for icon in ICONS.glob("*.png"):
+        target = www / icon.name
+        if not target.is_file() or target.read_bytes() != icon.read_bytes():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(icon, target)
     _write(page, render(status))
 
 
