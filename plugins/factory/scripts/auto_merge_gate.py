@@ -6,7 +6,8 @@ The gate is two things the project owns: the flags the merge must carry (`Merge 
 command that must exit 0 first (`Precondition`) -- whatever "safe to merge right now" means in that
 project, said in its own terms. The hook keeps only what no project may relax: no merge through
 `gh api`, no push to the base branch, no `--admin`, one PR number, no shell metacharacters, the
-factory label, no PR stacked on this one, a `Triage:` paragraph, and the excluded paths.
+factory label, no PR stacked on this one, a `Triage:` paragraph, a review of the head commit
+itself, and the excluded paths.
 
 **Merge on LGTM** is not auto-merge: it is the developer's merge, run by the worker. With the
 profile's `## Merge on LGTM` enabled, the developer's own LGTM in the worker's conversation lets
@@ -56,6 +57,7 @@ class Diff:
     head_committed: str = ""           # the head commit's ISO committer date
     ci_failed: bool = False            # a check on the head commit concluded in failure
     ci_unfinished: bool = False        # a check on the head commit is still running
+    head_sha: str = ""                 # the head commit; pre-pr-review's `Reviewed at` must name it
 
 
 DEFAULT_MERGE = "gh pr merge --auto --squash"
@@ -93,6 +95,15 @@ def failed_rule(diff: Diff, gate: Gate) -> str | None:
         return f"{above} stacked on it — the developer merges it with a merge commit"
     if not re.search(r"(?m)^Triage:", diff.body):
         return "no `Triage:` paragraph in the PR description"
+    # The triage judges what a wrong merge would cost, not whether the review is finished: that
+    # is this check's. pre-pr-review stamps the commit it reviewed; a push after it is code nobody
+    # reviewed, and the remedy is re-running the review, not the developer's read.
+    reviewed = re.findall(r"(?m)^Reviewed at ([0-9a-f]{7,40})\b", diff.body)
+    if not reviewed:
+        return "no `Reviewed at <sha>` line from pre-pr-review in the PR description"
+    if not diff.head_sha.startswith(reviewed[-1]):
+        return (f"pre-pr-review last ran on {reviewed[-1][:8]}, the head is {diff.head_sha[:8]} — "
+                "re-run it over the commits since")
     for path in diff.files:
         for pattern in gate.excluded:
             hit = path.startswith(pattern) if pattern.endswith("/") else fnmatch.fnmatch(path, pattern)
@@ -261,7 +272,7 @@ def ci_state(rollup: list[dict]) -> tuple[bool, bool]:
 
 def _fetch_diff(number: str) -> Diff:
     data = json.loads(run(["gh", "pr", "view", number, "--json",
-                           "additions,deletions,files,labels,body,headRefName,commits,statusCheckRollup"]))
+                           "additions,deletions,files,labels,body,headRefName,headRefOid,commits,statusCheckRollup"]))
     stacked = json.loads(run(["gh", "pr", "list", "--base", data["headRefName"], "--state", "open",
                               "--json", "number"]) or "[]")
     failed, unfinished = ci_state(data.get("statusCheckRollup") or [])
@@ -269,7 +280,7 @@ def _fetch_diff(number: str) -> Diff:
                 tuple(l["name"] for l in data["labels"]), data.get("body") or "",
                 tuple(p["number"] for p in stacked),
                 (data.get("commits") or [{}])[-1].get("committedDate", ""),
-                failed, unfinished)
+                failed, unfinished, data.get("headRefOid", ""))
 
 
 def main() -> int:

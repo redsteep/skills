@@ -274,11 +274,16 @@ Then act on your verdict:
   your turn: the dispatcher sends `ci-passed` when the checks go green, and you try the merge again.
   If a review ping has already gone out for this PR, retract it when the merge then succeeds —
   `{ping} --done "PR #<n> merged after all — review not needed"` — so a request to look at
-  something does not outlive the need. Any other refusal is the review path, as below.
+  something does not outlive the need. **A refusal that names pre-pr-review** (no `Reviewed at`
+  line, or one older than the head) is not a review path either: commits landed after the review —
+  a CI fix, a rebase — so re-run pre-pr-review over them (it updates the PR), then the merge.
+  Any other refusal is the review path, as below.
 
   When the command returns,
   `gh pr edit <n> --add-label factory:auto-merged` and `{ping} --done "PR #<n> auto-merged — <what it
-  changes, in a few words>"`, then wait for `merged`.
+  changes, in a few words>"` — adding, when there are any, what your `Triage:` paragraph named
+  instead of sending it to review (a departure from the spec, an edge it filled, a problem left
+  for later), so the developer can read it after the fact — then wait for `merged`.
 - **Review path:** `{ping} "PR #<n> ready for review"`, end your turn — review mode stays off
   until the developer shows up (a hook turns it on with their first message here). The developer
   reviews here: review mode answers, queues their change requests, and applies the queue on their

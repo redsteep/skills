@@ -17,13 +17,14 @@ from factory_common import developer_messages  # noqa: E402
 
 EXCLUDED = ("db/migrations/", "*.lock", "src/generated/api.ts")
 GATE = Gate(required_args=("--auto", "--squash"), precondition="", excluded=EXCLUDED)
-TRIAGE = "Summary\n\nTriage: copy change in one template, nothing open from review."
+HEAD = "06809a77a0eaef98ac7a88b29e9eb4ab177fcc41"
+TRIAGE = "Summary\n\nTriage: copy change in one template, nothing open from review.\n\nReviewed at 06809a77"
 
 
 def diff(additions=10, deletions=0, files=("docs/a.md",), labels=("factory",), body=TRIAGE, stacked=(),
-         head_committed="", ci_failed=False, ci_unfinished=False):
+         head_committed="", ci_failed=False, ci_unfinished=False, head_sha=HEAD):
     return Diff(additions, deletions, tuple(files), tuple(labels), body, tuple(stacked), head_committed,
-                ci_failed, ci_unfinished)
+                ci_failed, ci_unfinished, head_sha)
 
 
 def verdict(command, d=None, gate=GATE):
@@ -55,6 +56,17 @@ class GateRules(unittest.TestCase):
     def test_pr_with_a_pr_stacked_on_it_is_refused_however_small(self):
         self.assertEqual(failed_rule(diff(stacked=(12,)), GATE),
                          "#12 stacked on it — the developer merges it with a merge commit")
+
+    def test_a_push_after_the_review_is_refused_until_it_is_reviewed(self):
+        """PR #459: a hook move after the architecture review merged on nobody's read of it."""
+        self.assertEqual(failed_rule(diff(head_sha="13a5b1af" + "0" * 32), GATE),
+                         "pre-pr-review last ran on 06809a77, the head is 13a5b1af — re-run it over the commits since")
+        self.assertIsNone(failed_rule(diff(body=TRIAGE.replace("06809a77", "13a5b1af") + "\nReviewed at 06809a77"),
+                                      GATE))
+
+    def test_a_pr_never_reviewed_is_refused(self):
+        self.assertEqual(failed_rule(diff(body="Triage: a copy change."), GATE),
+                         "no `Reviewed at <sha>` line from pre-pr-review in the PR description")
 
     def test_pr_without_triage_reason_is_refused(self):
         self.assertEqual(failed_rule(diff(body="Summary only"), GATE),

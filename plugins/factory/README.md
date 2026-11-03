@@ -199,8 +199,8 @@ in the Slack DM) and type. Events from the dispatcher start with `Factory event:
    the profile's `## Deny`. Factory drops `gh pr merge` and `git push --force` from it, because:
 2. **`auto-merge-gate` hook** — inside a worker, the only force-push is `--force-with-lease` to
    the worker's own factory branch (an adopted PR's branch is merged into, never rebased); the only merge is the profile's **Merge command**,
-   alone on its line, on a `factory` PR with a `Triage:` paragraph, no PR stacked on it, no
-   excluded path, and the profile's **Precondition** exiting 0; `gh api` merges, `--admin` and
+   alone on its line, on a `factory` PR with a `Triage:` paragraph, a `Reviewed at` line naming the
+   head commit (a push after pre-pr-review means re-running it), no PR stacked on it, no excluded path, and the profile's **Precondition** exiting 0; `gh api` merges, `--admin` and
    pushes to main are denied too.
 3. **Merge on LGTM** (optional, profile `## Merge on LGTM`) — not auto-merge: your merge, run
    by the worker. The gate hook reads your `LGTM` from the worker's own transcript — a message you
