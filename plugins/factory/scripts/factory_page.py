@@ -65,6 +65,7 @@ text-transform:uppercase;letter-spacing:.04em}
 border-radius:10px;padding:12px 14px;display:flex;flex-wrap:wrap;gap:4px 16px;align-items:baseline}
 .need.critical{border-left-color:var(--critical)}
 .need .what{font-weight:600}.need .why{color:var(--text-2)}.need .links{margin-left:auto}
+a.web{font-size:12px;color:var(--text-2)}
 .empty{color:var(--text-2);padding:4px 0}
 .table-wrap{overflow-x:auto;background:var(--raised);border:1px solid var(--line);border-radius:10px}
 table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
@@ -119,6 +120,21 @@ def _badge(label: str, tone: str, icon: str) -> str:
 
 def _link(url: str | None, text: str) -> str:
     return f'<a href="{escape(url)}">{escape(text)}</a>' if url else ""
+
+
+def app_url(url: str) -> str:
+    """The same claude.ai page in the Claude desktop app: it answers `claude://claude.ai/<path>`
+    as it would the web path, so a session link opens the session there instead of a browser tab."""
+    return "claude://" + url.removeprefix("https://") if url.startswith("https://claude.ai/") else url
+
+
+def _conversation(url: str | None, text: str) -> str:
+    """A button that opens the worker's session in the Claude desktop app, and a quiet link to the
+    same session on the web — for a phone, or a Mac without the app."""
+    if not url:
+        return ""
+    return (f'<a class="app" href="{escape(app_url(url))}">{escape(text)}</a>'
+            f' <a class="web" href="{escape(url)}">web</a>')
 
 
 def _meter(busy: int, wip: int) -> str:
@@ -199,7 +215,7 @@ def render(status: dict) -> str:
         needs.append(f'<div class="need{" critical" if critical else ""}">'
                      + (f'<span class="what">{escape(title)}</span>' if title else "")
                      + f'<span class="why">{escape(a["why"])}</span>'
-                     + f'<span class="links">{_link(a.get("conversation"), "Open the conversation →")}</span></div>')
+                     + f'<span class="links">{_conversation(a.get("conversation"), "Open the conversation →")}</span></div>')
 
     table = rows(status)
     body_rows = "".join(
@@ -207,7 +223,7 @@ def render(status: dict) -> str:
         f"<td data-label=What>{r['what']}</td><td data-label=Step>{r['step']}</td>"
         f"<td data-label=PR>{r['prs']}</td><td data-label=Review class=nw>{escape(r['review'])}</td>"
         f"<td data-label='You wrote' class='sub nw'>{r['seen']}</td>"
-        f"<td data-label=Worker class=nw>{_link(r['conversation'], 'Open')}</td></tr>" for r in table)
+        f"<td data-label=Worker class=nw>{_conversation(r['conversation'], 'Open')}</td></tr>" for r in table)
     steps = ('<div class="table-wrap"><table><thead><tr><th>Doing</th><th>What</th><th>Step</th>'
              '<th>PR</th><th>Review</th><th>You last wrote</th><th>Worker</th></tr></thead>'
              f"<tbody>{body_rows}</tbody></table></div>") if table else '<p class="empty">Nothing under way.</p>'
