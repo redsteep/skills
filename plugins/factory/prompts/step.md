@@ -74,7 +74,8 @@ reading: say in one line what needs doing and hold it until their go, their LGTM
   `"step {step_n} dropped — redo, skip, or stop the card?"`, wait. Then:
   - **redo** → remove the prefix, `review-mode.sh off -b {branch}` (the closed PR's review is
     over, and its marker would deny every edit of the redo), `git push origin --delete {branch}`,
-    `git checkout -B {branch} origin/{base}`, and start again at *Spec*;
+    `git checkout -B {branch} origin/{base}`, and start again at *Spec* (at *Build* for a
+    `[trivial]` step);
   - **skip** → rename the item `[skipped] …`, check it, end;
   - **stop** → remove the card's `ready` label, end.
 
@@ -252,7 +253,8 @@ build only step {step_n} — the dispatcher starts the next step's worker once y
 2. Run `pre-pr-review` over the branch. Hold the migration lock around its migration round-trip:
    `{lock} acquire migration` before, `{lock} release migration` after (also when it fails). At its
    step 7 it opens the step's PR — pass `--label {label}`, or the dispatcher will not see the PR as
-   the factory's and your step will never reach *Handoff*. The spec rides in the same PR.
+   the factory's and your step will never reach *Handoff*. The spec, if the step has one, rides in
+   the same PR.
 3. *Triage*.
 
 ## Triage

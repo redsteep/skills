@@ -14,6 +14,15 @@ the guess: each step line names a mechanism, and every spec and review after it 
 that line instead of against the problem. So the card is analysed first, and the developer
 settles what the analysis finds before anything is cut.
 
+**Except a trivial card.** It says exactly what to change and where, the change is presentation
+only — a copy text, a label, a style, a link — with no data, behaviour, API or stored value
+changing, and one PR does it all. Check that with a look at the code (the place exists, nothing
+but the screen reads that text), not with an analysis: then go straight to *Split* and cut it
+as one item prefixed `[trivial] `, which tells the step's worker to skip its spec — an item
+adopting a PR (`#<n> …`) needs no prefix, it has no spec anyway. Write no brief, and
+`{ping} --done "card split as trivial — no analysis, no spec: <the item>"`: the developer
+undoes it by removing the prefix and the checklist. When in doubt, it is not trivial.
+
 1. **The brief may already exist** — `{brief}`, written by a worker before you. With an
    `Approved-by:` line at its end, it is settled: if it says `Attach: yes`, run the upload
    below (in case the worker before you died before it), then go to *Split*. Without one, it waits for the developer: run
@@ -48,7 +57,7 @@ is harmless — then go to *Split*.
 
 ## Split
 
-1. Read the card and the approved brief again. Read enough of the repo (`CLAUDE.md`, the code the
+1. Read the card and the approved brief again (a trivial card has none). Read enough of the repo (`CLAUDE.md`, the code the
    card touches) to know where the work lands.
 2. **PRs the card already has** (linked in its description, comments or attachments): every
    open one becomes a step of its own, in the order they must merge — a PR stacked on another

@@ -20,7 +20,7 @@ declares, and a hook lets it through only when the PR passes the gate in your pr
 excluded paths and its `Precondition`, a command of yours that must exit 0 first. Start strict;
 relax the gate by editing the profile.
 
-**Every card is analysed before it is split.** A card says what hurts, guesses why, and proposes
+**Every card but a trivial one is analysed before it is split.** A card says what hurts, guesses why, and proposes
 a fix; a split cut straight from it freezes the guess into its step lines, and every spec and
 review after that checks against the line, not the problem. So the split worker first has a
 subagent analyse the card — from the card alone, handed no guess — and write a **brief** to
@@ -30,7 +30,9 @@ approaches, what each makes irreversible, and adjacent problems — then finding
 you, and a proposed split. You settle it in the split worker's conversation and approve it
 ("approved, split it"); only then are the steps cut, and each step's spec reads the brief. The brief's measurements
 come with the queries that took them, so a spec template that asks how a change is verified
-gets its "before" from them. Say
+gets its "before" from them. A **trivial** card — presentation only (a copy text, a label, a
+style), one PR — skips both: the split worker cuts it as one `[trivial] ` item without an
+analysis, and that step starts at the build, with no spec; the PR review is the only gate. Say
 "approved, split it, attach" and the approved brief also goes on the card as `card-brief.md`
 (`factory-attach`, with the factory's own Trello key from `.env`) — for the requester to read,
 so a bare approval keeps it local. The

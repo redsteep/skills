@@ -114,6 +114,23 @@ class CardAnalysis(unittest.TestCase):
         self.assertIn("so it can be run\n   again once the work ships", analysis)
         self.assertIn('the brief\'s measurements of the symptom are the\n   "before"', spec)
 
+    def test_a_trivial_card_skips_the_analysis_and_its_step_the_spec(self):
+        import sys
+        sys.path.insert(0, str(PROMPTS.parent / "scripts"))
+        from factory_common import Profile
+        from factory_dispatch import Card, Item, Step, render_prompt
+        analysis = section((PROMPTS / "split.md").read_text(), "Analysis")
+        self.assertIn("go straight to *Split*", analysis)
+        self.assertIn("When in doubt, it is not trivial.", analysis)
+        card = Card("c1", "abc123", "A card", "https://trello.com/c/abc123", True, None)
+        for name, entry in (("[trivial] Rename the column", "Start at *Build*"),
+                            ("[dropped] [trivial] Rename the column", "Start at *Build*"),
+                            ("Rename the column", "Start at *Spec*")):
+            with self.subTest(item=name):
+                text = render_prompt("step.md", Path("/repo"), Profile(""), "factory-abc123-s1", card=card,
+                                     step=Step(card, 1, Item(name, False), "pending"), total=1)
+                self.assertIn(entry, text)
+
 
 class Rendering(unittest.TestCase):
     """Every placeholder a template uses is filled: an unfilled one reaches the worker as literal

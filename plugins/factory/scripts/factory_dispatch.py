@@ -44,6 +44,7 @@ INSTRUCTIONS = hashlib.sha256(b"".join(
     p.read_bytes() for p in sorted((PLUGIN_ROOT / "prompts").glob("*.md")))
     + Path(__file__).read_bytes()).hexdigest()[:12]
 DROPPED = "[dropped]"
+TRIVIAL = "[trivial]"           # the split judged the step presentation-only: no spec
 # A card's brief: the analysis its split worker writes and the developer approves before the
 # split. Outside the repo, so it rides on no branch; every worker is given the directory.
 BRIEFS_DIR = STATE_DIR / "briefs"
@@ -934,6 +935,10 @@ def _entry(step: Step | None) -> str:
         return (f"This step is **GitHub issue #{step.card.issue}**, marked as needing no design "
                 "decision: there is no spec phase and no Trello card. Start at *Issue*"
                 + (" — its steps are already listed, so skip the split." if step.n > 1 else "."))
+    if step.pr_number is None and step.item.name.removeprefix(DROPPED).lstrip().startswith(TRIVIAL):
+        return ("The split marked this step **trivial** — presentation only, one PR: there is no spec "
+                "phase. Start at *Build*; if the code shows it is not trivial after all, ping the "
+                "developer before building.")
     if step.pr_number is None:
         return "Start at *Spec*."
     return (f"This step **adopts PR #{step.pr_number}** (branch `{step.branch}`), written before the "
@@ -948,8 +953,8 @@ def render_prompt(template: str, repo: Path, profile: Profile, name: str, card: 
     text = text.replace("{triage}", (PLUGIN_ROOT / "prompts/triage.md").read_text().strip()
                         .replace("{DIFF}", "git diff origin/{base}...HEAD")
                         .replace("{DESCRIPTION}", "the PR's body (`gh pr view <n> --json body -q .body`)")
-                        .replace("{SPEC}", "the step's spec, committed on this branch (none for an issue "
-                                           "or an adopted PR)"))
+                        .replace("{SPEC}", "the step's spec, committed on this branch (none for an issue, "
+                                           "an adopted PR or a trivial step)"))
     # The analysis is its own template for the same reason: it can be run alone on a past card.
     text = text.replace("{analysis}", (PLUGIN_ROOT / "prompts/analysis.md").read_text().strip())
     values = {
