@@ -207,8 +207,11 @@ in the Slack DM, or **Open** on the status page, which opens it in the Claude de
 - **Pause:** `touch ~/.local/state/factory/PAUSED` — dispatches stop; workers keep their state.
   `rm` it to resume.
 - **Status page:** `~/.local/state/factory/www/index.html`, rewritten by every dispatch (setup step
-  9 serves it to your Mac and phone). What waits for you first, with a link to the worker's conversation; then the
-  slots, every step under way and what the dispatch did. It reloads every minute, reads **stale**
+  9 serves it to your Mac and phone). The slots, then what waits for you — one card per decision,
+  named by what it is (*Approve brief*, *Approve spec*, *Review PR #n*, *After merge*, *Answer*;
+  *No worker* and *Dispatch failed* first), each with one **Open in Claude** button — then what
+  is under way, without what already waits for you; queued and held steps and what the dispatch did
+  are folded away. The snapshot's `attention[].kind` carries that name. It reloads every minute, reads **stale**
   once nothing has rewritten it for ten minutes, and **paused** while you have paused the factory.
 - **Logs:** `journalctl --user -u factory-dispatch` (each dispatch prints what it did).
 - **Status:** `scripts/factory-status` — what the last dispatch saw: slots busy per pool, what
