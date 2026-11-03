@@ -228,8 +228,8 @@ def _write(path: Path, text: str) -> None:
 
 
 def write_status(status: dict, path: Path = STATUS_FILE, page: Path = PAGE_FILE) -> None:
-    """The snapshot, and beside the page what a viewer of it fetches: the snapshot again (the
-    Mac menu bar reads it), the web app manifest and its icons — the folder is all that is
+    """The snapshot, and beside the page what a viewer of it fetches: the snapshot again (for
+    anything else that shows it), the web app manifest and its icons — the folder is all that is
     served, so it holds everything the page needs and nothing else."""
     text = json.dumps(status, indent=1, ensure_ascii=False)
     _write(path, text)
