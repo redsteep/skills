@@ -52,6 +52,7 @@ BRIEFS_DIR = STATE_DIR / "briefs"
 # The split worker writes the step here instead, as one task line (`- [ ] …`), and the handoff
 # ticks it there; a checklist on the card, once one exists, wins.
 STEPS_DIR = STATE_DIR / "steps"
+ATTACHMENTS_DIR = STATE_DIR / "attachments"   # a card's files, fetched by factory-download
 
 # Step states (spec: "Step state — the one predicate every rule reads").
 PENDING, IN_PROGRESS, MERGED, FIXING, DONE, DROPPED_STATE = (
@@ -893,6 +894,7 @@ class Executor:
         prompt = render_prompt(template, self.repo, self.profile, name, **ctx)
         BRIEFS_DIR.mkdir(parents=True, exist_ok=True)
         STEPS_DIR.mkdir(parents=True, exist_ok=True)
+        ATTACHMENTS_DIR.mkdir(parents=True, exist_ok=True)
         # A worker inherits the settings of the branch it sits on, and an adopted PR's branch can
         # predate the repo enabling these plugins — no skills, no reviewer agents, no merge gate.
         # Loading the marketplace's plugins explicitly makes every worker carry them (no
@@ -902,7 +904,7 @@ class Executor:
         cmd = ["claude", "--bg", "--name", name, "--remote-control", title,
                "--plugin-dir", str(PLUGIN_ROOT.parent),
                "--permission-mode", self.profile.get("Settings", "Permission mode", "auto"),
-               "--add-dir", str(BRIEFS_DIR), "--add-dir", str(STEPS_DIR),
+               "--add-dir", str(BRIEFS_DIR), "--add-dir", str(STEPS_DIR), "--add-dir", str(ATTACHMENTS_DIR),
                "--disallowedTools", *deny_list(self.profile, issue=ctx["card"].issue is not None),
                "--", prompt]
         # `claude --bg` hands the session to a background daemon, started on demand by whoever
@@ -1015,6 +1017,9 @@ def render_prompt(template: str, repo: Path, profile: Profile, name: str, card: 
         # which the first launch started -- every later worker read that worker's FACTORY_WORKER.
         "ping": f'{shlex.quote(str(PLUGIN_ROOT / "scripts/factory-ping"))} --worker {name}',
         "lock": shlex.quote(str(PLUGIN_ROOT / "scripts/factory-lock")),
+        "download": (f'{shlex.quote(str(PLUGIN_ROOT / "scripts/factory-download"))} '
+                     f'--repo {shlex.quote(str(repo))} --card {card.id} '
+                     f'--out {shlex.quote(str(ATTACHMENTS_DIR / card.short))}'),
         "attach": (f'{shlex.quote(str(PLUGIN_ROOT / "scripts/factory-attach"))} '
                    f'--repo {shlex.quote(str(repo))} --card {card.id}'),
     }

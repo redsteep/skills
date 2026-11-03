@@ -81,7 +81,9 @@ reading: say in one line what needs doing and hold it until their go, their LGTM
 
 ## Spec
 
-1. Read the card, its checklist, the card's brief `{brief}` (the analysis the developer approved
+1. Read the card, its checklist, its uploaded files (`{download}` fetches them and prints where;
+   read every image — a screenshot is often the only statement of what the screen should look
+   like), the card's brief `{brief}` (the analysis the developer approved
    before the split — a card split before briefs existed has none), and the specs and PRs of
    earlier steps.
 2. A subagent writes the spec for this step only, from the template {spec_template}, as

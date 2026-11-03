@@ -227,6 +227,7 @@ in the Slack DM) and type. Events from the dispatcher start with `Factory event:
 | `scripts/auto_merge_gate.py` | the PreToolUse gate hook |
 | `scripts/factory_ping.py` | `factory-ping` — Slack DM, once per reason per step; `--factory` for the dispatcher's own notices |
 | `scripts/factory_attach.py` | `factory-attach` — puts an approved card brief on the Trello card, replacing an earlier upload |
+| `scripts/factory_download.py` | `factory-download` — fetches a card's uploaded files (screenshots, mockups) for the analyst and the spec writer, with the key from `.env` |
 | `scripts/factory_status.py` | `factory-status [--json] [--live <repo>]` — the snapshot each dispatch writes |
 | `scripts/factory_page.py` | the status page, rendered from the snapshot |
 | `systemd/factory-page.service` | serves the status page on localhost |

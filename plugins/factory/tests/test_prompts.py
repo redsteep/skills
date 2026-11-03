@@ -177,6 +177,7 @@ class Rendering(unittest.TestCase):
         self.assertIn("across *every* source", text)
         self.assertIn("the prod DB through `q.sh`", text)
         self.assertIn(str(BRIEFS_DIR / "abc123.md"), text)
+        self.assertIn("scripts/factory-download --repo /repo --card c1 --out ", text)
 
 
 if __name__ == "__main__":
