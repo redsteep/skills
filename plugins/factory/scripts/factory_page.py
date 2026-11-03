@@ -104,6 +104,15 @@ if(!isNaN(d))t.textContent=d.toLocaleString([],{month:"short",day:"numeric",hour
 """
 
 
+# What "Add to Home Screen" reads: the page opens full screen, as an app, under this name.
+MANIFEST = {
+    "name": "factory", "short_name": "factory", "start_url": ".", "scope": ".",
+    "display": "standalone", "background_color": "#1a1a19", "theme_color": "#1a1a19",
+    "icons": [{"src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"},
+              {"src": "apple-touch-icon.png", "sizes": "180x180", "type": "image/png"}],
+}
+
+
 def _badge(label: str, tone: str, icon: str) -> str:
     return f'<span class="badge {tone}"><i aria-hidden="true">{icon}</i>{escape(label)}</span>'
 
@@ -217,6 +226,12 @@ def render(status: dict) -> str:
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="refresh" content="{REFRESH}">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="factory">
+<meta name="theme-color" content="#fcfcfb" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1a1a19" media="(prefers-color-scheme: dark)">
 <title>{"⏸ " if paused else ""}{"(" + str(len(attention)) + ") " if attention else ""}factory</title>
 <style>{CSS}</style></head>
 <body data-at="{escape(at)}"><main>

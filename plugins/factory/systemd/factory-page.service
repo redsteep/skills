@@ -3,6 +3,7 @@ Description=Factory status page — serves the page each dispatch writes, and no
 
 [Service]
 # Only the www folder is served: the rest of ~/.local/state/factory stays private.
+# Only needed where `tailscale serve` cannot serve the folder itself (README, setup step 9).
 # The page has no login of its own. Keep it on localhost and reach it through something that
 # authenticates — `tailscale serve --bg 8765` puts it on your tailnet over HTTPS — or bind
 # your tailnet address here instead of 127.0.0.1.
