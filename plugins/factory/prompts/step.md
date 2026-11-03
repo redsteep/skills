@@ -314,15 +314,18 @@ Then act on your verdict:
 
 On `merged`:
 
-1. `{lock} acquire handoff`.
-2. Run the project's handoff skill, `{handoff_skill}`, with `step={step_n}/{step_total}`. Its step mode asks "test manually
-   first?" as a ping, checks the change on beta, links the PR on the card and checks your item
-   (on a card without a checklist, tell it your item is the line in `{steps_file}`); on
-   the last step it also drafts the card move and the requester message and posts them only on the
-   developer's yes. It skips the worktree cleanup — the dispatcher owns that.
-3. `{lock} release handoff` — also when the handoff fails.
-4. **Broken on beta** → leave the item unchecked, ping what is broken, and fix it in a **fix PR**:
+1. Run the project's handoff skill, `{handoff_skill}`, with `step={step_n}/{step_total}`, in the order
+   its step mode gives — it decides when you notify the developer, check the change where it
+   ships, and ask whether they want to test it first. Its pings are `{ping}`. It links the PR on
+   the card and checks your item (on a card without a checklist, tell it your item is the line in
+   `{steps_file}`); on the last step it also drafts the card move and the requester message and
+   posts them only on the developer's yes. It skips the worktree cleanup — the dispatcher owns that.
+2. **The handoff lock** — `{lock} acquire handoff` / `{lock} release handoff`, released also when
+   a step fails — guards what workers share (a QA session, dev ports). Hold it where the skill
+   says; a skill that names no place for it runs whole under it. Never hold it while you wait for
+   the developer.
+3. **Broken on beta** → leave the item unchecked, ping what is broken, and fix it in a **fix PR**:
    branch `{branch}-fix<M>` from `origin/{base}`, label `factory`, through *Build* and *Triage* again.
    When it merges, run the handoff again.
-5. When your item is checked, end your turn. The dispatcher stops this session and removes the
+4. When your item is checked, end your turn. The dispatcher stops this session and removes the
    worktree.
