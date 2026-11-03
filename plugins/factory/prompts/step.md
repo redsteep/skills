@@ -88,7 +88,9 @@ reading: say in one line what needs doing and hold it until their go, their LGTM
    own reading of them: a subagent handed a conclusion verifies it instead of testing it. The
    brief's decisions are settled; one the code shows to be wrong is raised with the developer,
    not quietly redesigned. Anything the card and the brief leave open that changes what gets
-   built goes under *Open questions* — never guess a product decision.
+   built goes under *Open questions* — never guess a product decision. Where the template asks
+   how the change is verified once deployed, the brief's measurements of the symptom are the
+   "before", re-run as they were taken: the spec states the "after" each should show.
 3. Run the `design-review` skill (proposal mode) on it. Apply findings that are plainly right;
    any that need the developer join the open questions.
 4. Commit the spec and push the branch. **No PR for a spec**: a spec is a design to read, not a

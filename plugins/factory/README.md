@@ -28,7 +28,9 @@ subagent analyse the card — from the card alone, handed no guess — and write
 (code, scripts, stored prompts, history), every reader and writer of what changes, at least two
 approaches, what each makes irreversible, and adjacent problems — then findings, decisions for
 you, and a proposed split. You settle it in the split worker's conversation and approve it
-("approved, split it"); only then are the steps cut, and each step's spec reads the brief. Say
+("approved, split it"); only then are the steps cut, and each step's spec reads the brief. The brief's measurements
+come with the queries that took them, so a spec template that asks how a change is verified
+gets its "before" from them. Say
 "approved, split it, attach" and the approved brief also goes on the card as `card-brief.md`
 (`factory-attach`, with the factory's own Trello key from `.env`) — for the requester to read,
 so a bare approval keeps it local. The

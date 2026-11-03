@@ -108,6 +108,12 @@ class CardAnalysis(unittest.TestCase):
         self.assertIn("{brief}", spec)
         self.assertIn("not your\n   own reading of them", spec)
 
+    def test_the_brief_measures_what_the_shipped_work_is_checked_against(self):
+        analysis = (PROMPTS / "analysis.md").read_text()
+        spec = section((PROMPTS / "step.md").read_text(), "Spec")
+        self.assertIn("so it can be run\n   again once the work ships", analysis)
+        self.assertIn('the brief\'s measurements of the symptom are the\n   "before"', spec)
+
 
 class Rendering(unittest.TestCase):
     """Every placeholder a template uses is filled: an unfilled one reaches the worker as literal

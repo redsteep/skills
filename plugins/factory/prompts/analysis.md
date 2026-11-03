@@ -16,7 +16,8 @@ Answer each of these with evidence — a query result, a `file:line`, a command'
 
 1. **Symptom, measured.** How big is the problem in real data, across *every* source that can
    produce it — not only the source the card names? Break it down. Does the diagnosis explain
-   all of it?
+   all of it? Give each number with the query or command that produced it, so it can be run
+   again once the work ships.
 2. **Prior art.** Has this, or something close, been solved or attempted before? Search
    production code, one-off scripts, LLM prompts — in code *and* wherever the product stores
    prompts as data — commit history of the files involved, and closed PRs and issues. Search
