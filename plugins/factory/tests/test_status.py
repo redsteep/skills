@@ -44,6 +44,13 @@ class Snapshot(unittest.TestCase):
         self.assertEqual(s1["prs"][0]["number"], 5)
         self.assertEqual(status["attention"][0]["conversation"], "https://claude.ai/code/session_X")
 
+    def test_what_you_are_waited_for_is_named(self):
+        w = world([card("c1", [todo()]), card("c2", [todo()])], prs=[pr(5, B1, ci="passed")],
+                  branches=[B1, "feature/factory-c2-s1"],
+                  workers={"factory-c1-s1": "idle", "factory-c2-s1": "idle"}, sent=["5:ci-passed:abc"])
+        kinds = {a["worker"]: (a["kind"], a["pr"]) for a in snapshot(w, decide(w))["attention"]}
+        self.assertEqual(kinds, {"factory-c1-s1": ("review", 5), "factory-c2-s1": ("spec", None)})
+
     def test_a_card_on_hold_is_on_hold_and_waits_for_nobody(self):
         w = world([card("c1", [todo(), todo()], ready=False, held=True)], branches=[B1],
                   workers={"factory-c1-s1": "idle"})
@@ -213,13 +220,24 @@ class Page(unittest.TestCase):
                   workers={"factory-c1-s1": "idle", "factory-c2-s1": "busy"}, sent=["5:ci-passed:abc"])
         html = self.page(w, conversations={"factory-c1-s1": "https://claude.ai/code/session_X"})
         self.assertIn("<title>(1) factory</title>", html)
-        need = html[html.index('<div class="need'):html.index("<h2>Steps")]
+        need = html[html.index('<article class="need'):html.index('id="underway"')]
         self.assertIn("Card c1", need)
+        self.assertIn("Review PR #5", need)
         self.assertIn('href="claude://claude.ai/code/session_X"', need)
         self.assertIn('href="https://claude.ai/code/session_X"', need)
-        table = html[html.index("<tbody>"):]
-        self.assertLess(table.index("waits for you"), table.index("working"))
-        self.assertIn("CI passed", table)
+        under_way = html[html.index('id="underway"'):]
+        self.assertIn("working", under_way)
+        self.assertNotIn("Card c1", under_way)   # what waits for you is not listed twice
+
+    def test_what_is_broken_comes_before_what_waits(self):
+        status = {"pools": {"cards": {"busy": 0, "wip": 1}, "issues": {"busy": 0, "wip": 1}}, "items": [],
+                  "attention": [{"why": "waits for you", "kind": "spec", "pr": None, "title": "A",
+                                 "conversation": None},
+                                {"why": "failed: boom", "title": None, "conversation": None}],
+                  "dispatch": []}
+        html = render(status)
+        self.assertLess(html.index("Dispatch failed"), html.index("Approve spec"))
+        self.assertIn('class="need critical"', html)
 
     def test_names_are_escaped(self):
         w = world([replace(card("c1", [Item("<script>x</script>", False)]), name="A & <b>")])

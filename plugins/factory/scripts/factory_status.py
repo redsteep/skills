@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from factory_page import MANIFEST, STALE_AFTER, render  # noqa: E402
 from factory_common import PAUSE_FILE, STATE_DIR, Profile, conversation_url, load_repo_secrets, split_name  # noqa: E402
 from factory_dispatch import (  # noqa: E402
-    BRIEFS_DIR, DONE, DROPPED_STATE, MERGED, PENDING, VERSION, Cleanup, QueueEmpty, Reinstruct, ReviewIdle,
+    BRIEFS_DIR, DONE, DROPPED, DROPPED_STATE, MERGED, PENDING, TRIVIAL, VERSION, Cleanup, QueueEmpty, Reinstruct, ReviewIdle,
     ReviewOff, SendEvent, Shelve, StartSplit, StartStep, Step, World, _alive, _eligible_step, _first_open,
     _issues_started_since, card_steps, display_name, slots_held, step_all_prs, step_prs,
 )
@@ -138,6 +138,19 @@ def split_activity(card, world: World, actions: list) -> str:
     return {"restarting": RESTARTING, "idle": WAITS_YOU}.get(info.get("status"), WORKING)
 
 
+def need_kind(step: Step, prs: list) -> tuple[str, int | None]:
+    """What an idle worker on a step most likely waits for, from where the step stands: a merged
+    step's handoff asks "test it manually first?", an open PR waits for review, and before a PR a
+    step's worker waits on its spec (a trivial step has none: a question, then)."""
+    if step.state == MERGED:
+        return "handoff", None
+    open_pr = next((p for p in prs if p.state == "OPEN"), None)
+    if open_pr is not None:
+        return "review", open_pr.number
+    trivial = step.item.name.removeprefix(DROPPED).lstrip().startswith(TRIVIAL)
+    return ("question" if trivial or step.pr_number else "spec"), None
+
+
 def snapshot(world: World, actions: list, failed: list = (), conversations: dict | None = None,
              briefs: dict | None = None) -> dict:
     """The status as plain JSON: pools, every ready card and issue with its steps, what needs the
@@ -162,7 +175,8 @@ def snapshot(world: World, actions: list, failed: list = (), conversations: dict
             entry["steps"] = []
             if act == WAITS_YOU:
                 attention.append({"why": "brief to talk through and approve" if phase == BRIEF
-                                  else "waits for you", "title": f"{card.name} · {phase}",
+                                  else "waits for you", "kind": "brief" if phase == BRIEF else "question",
+                                  "pr": None, "title": f"{card.name} · {phase}",
                                   "worker": split, "conversation": conversations.get(split)})
             items.append(entry)
             continue
@@ -186,16 +200,17 @@ def snapshot(world: World, actions: list, failed: list = (), conversations: dict
             }
             entry["steps"].append(row)
             if row["activity"] == WAITS_YOU:
-                attention.append({"why": "waits for you", "title": row["title"], "worker": s.worker,
-                                  "conversation": row["conversation"]})
+                kind, number = need_kind(s, prs)
+                attention.append({"why": "waits for you", "kind": kind, "pr": number, "title": row["title"],
+                                  "worker": s.worker, "conversation": row["conversation"]})
             elif row["activity"] == NO_WORKER:
-                attention.append({"why": "under way with no worker — waits for a free slot",
-                                  "title": row["title"], "worker": s.worker, "conversation": None})
+                attention.append({"why": "under way with no worker — waits for a free slot", "kind": "no-worker",
+                                  "pr": None, "title": row["title"], "worker": s.worker, "conversation": None})
         items.append(entry)
     for action, exc in failed:
         attention.append({"why": f"failed: {describe(action) or type(action).__name__}: "
                                  f"{(str(exc).splitlines() or [''])[0][:300]}",
-                          "title": None, "worker": None, "conversation": None})
+                          "kind": "failed", "pr": None, "title": None, "worker": None, "conversation": None})
     return {
         "schema": SCHEMA,
         "paused": False,
