@@ -48,6 +48,10 @@ TRIVIAL = "[trivial]"           # the split judged the step presentation-only: n
 # A card's brief: the analysis its split worker writes and the developer approves before the
 # split. Outside the repo, so it rides on no branch; every worker is given the directory.
 BRIEFS_DIR = STATE_DIR / "briefs"
+# A card cut into one step gets no checklist: a one-item list on the card is noise to its reader.
+# The split worker writes the step here instead, as one task line (`- [ ] …`), and the handoff
+# ticks it there; a checklist on the card, once one exists, wins.
+STEPS_DIR = STATE_DIR / "steps"
 
 # Step states (spec: "Step state — the one predicate every rule reads").
 PENDING, IN_PROGRESS, MERGED, FIXING, DONE, DROPPED_STATE = (
@@ -88,6 +92,7 @@ class Card:
     ready: bool
     items: tuple[Item, ...] | None   # None = no "Factory steps" checklist yet
     issue: int | None = None         # a GitHub issue standing in for a card: one step, its own item
+    steps_file: bool = False         # its one step comes from STEPS_DIR, not a checklist
 
 
 ISSUE_STEPS = "Factory steps"
@@ -106,6 +111,18 @@ def issue_items(title: str, body: str, open_: bool) -> tuple[Item, ...]:
         elif inside and (m := _TASK.match(line)):
             items.append(Item(m[2], m[1] != " " or not open_))
     return tuple(items) or (Item(title, not open_),)
+
+
+def file_items(path: Path) -> tuple[Item, ...] | None:
+    """A one-step card's step, from the task line the split worker wrote; None = no file."""
+    if not path.is_file():
+        return None
+    items = tuple(Item(m[2], m[1] != " ") for line in path.read_text().splitlines() if (m := _TASK.match(line)))
+    return items or None
+
+
+def steps_file(card: Card) -> Path:
+    return STEPS_DIR / f"{card.short}.md"
 
 
 def issue_card(number: int, title: str, url: str, open_: bool, body: str = "") -> Card:
@@ -584,12 +601,16 @@ def load_cards(profile: Profile) -> tuple[Card, ...]:
     for c in sorted(raw, key=lambda c: (lists.get(c["idList"], 0), c["pos"])):
         ready = any((labels.get(i) or "").casefold() == ready_name.casefold() for i in c["idLabels"])
         checklist = next((cl for cl in c.get("checklists", []) if cl["name"] == checklist_name), None)
-        items = None
+        items, from_file = None, False
         if checklist is not None:
             items = tuple(Item(i["name"], i["state"] == "complete")
                           for i in sorted(checklist["checkItems"], key=lambda i: i["pos"]))
+        else:
+            items = file_items(STEPS_DIR / f"{c['shortLink']}.md")
+            from_file = items is not None
         if ready or items is not None:
-            cards.append(Card(c["id"], c["shortLink"], c["name"], c["shortUrl"], ready, items))
+            cards.append(Card(c["id"], c["shortLink"], c["name"], c["shortUrl"], ready, items,
+                              steps_file=from_file))
     return tuple(cards)
 
 
@@ -871,6 +892,7 @@ class Executor:
             run(["claude", "rm", agent["id"]], check=False)
         prompt = render_prompt(template, self.repo, self.profile, name, **ctx)
         BRIEFS_DIR.mkdir(parents=True, exist_ok=True)
+        STEPS_DIR.mkdir(parents=True, exist_ok=True)
         # A worker inherits the settings of the branch it sits on, and an adopted PR's branch can
         # predate the repo enabling these plugins — no skills, no reviewer agents, no merge gate.
         # Loading the marketplace's plugins explicitly makes every worker carry them (no
@@ -880,7 +902,7 @@ class Executor:
         cmd = ["claude", "--bg", "--name", name, "--remote-control", title,
                "--plugin-dir", str(PLUGIN_ROOT.parent),
                "--permission-mode", self.profile.get("Settings", "Permission mode", "auto"),
-               "--add-dir", str(BRIEFS_DIR),
+               "--add-dir", str(BRIEFS_DIR), "--add-dir", str(STEPS_DIR),
                "--disallowedTools", *deny_list(self.profile, issue=ctx["card"].issue is not None),
                "--", prompt]
         # `claude --bg` hands the session to a background daemon, started on demand by whoever
@@ -923,6 +945,8 @@ def display_name(card: Card, step: Step | None = None, total: int = 0) -> str:
         title = f"#{card.issue} {card.name}"
     elif step is None:
         title = f"{card.name} · split"
+    elif total == 1:
+        title = card.name
     else:
         title = f"{card.name} · {step.n}/{total}"
     return "factory · " + (title if len(title) <= 70 else title[:69] + "…")
@@ -981,6 +1005,10 @@ def render_prompt(template: str, repo: Path, profile: Profile, name: str, card: 
         "specs_dir": profile.get("Repo", "Specs", "docs") or "docs",
         "handoff_skill": profile.get("Repo", "Handoff skill", "") or "",
         "brief": str(BRIEFS_DIR / f"{card.short}.md"),
+        "steps_file": str(steps_file(card)),
+        "item_home": (f"the card has no checklist — your step is the one task line in `{steps_file(card)}`: "
+                      "you tick it by turning `- [ ]` into `- [x]` and rename it by editing the text after the box"
+                      if card.steps_file else "the card's `Factory steps` checklist"),
         "analysis_sources": profile.text("Analysis", "Sources", "") or "the repo and its history; "
                             "nothing that writes, sends or deploys",
         # Named here, not left to the env: `claude --bg` sessions inherit the env of the daemon,

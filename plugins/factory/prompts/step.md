@@ -24,7 +24,7 @@ read what was decided. Repo rules: {rules}. Profile: `{profile}`.
   on its own (the PR link, checking your item). GitHub issues in this repo are the factory's own
   bookkeeping, not messages: file, edit, comment on and close them where these instructions say
   to (a flaky test, an issue already done or needing a decision, your step list) without asking.
-- Build only step {step_n}. The other items of the card's `Factory steps` checklist are context.
+- Build only step {step_n}. Your item is on {item_home}; the other steps, if any, are context.
 
 ## Events
 
@@ -70,7 +70,7 @@ conflict, a red check, a migration head — is yours to do **while review mode i
 then `{ping} --done "PR #<n> updated — <what changed>"`. While it is on, don't change what they are
 reading: say in one line what needs doing and hold it until their go, their LGTM or
 `review-idle`. Never queue upkeep as one of their change requests.
-- `pr-closed PR #n` → the developer said no. Prefix your checklist item with `[dropped] `, ping
+- `pr-closed PR #n` → the developer said no. Prefix your item with `[dropped] `, ping
   `"step {step_n} dropped — redo, skip, or stop the card?"`, wait. Then:
   - **redo** → remove the prefix, `review-mode.sh off -b {branch}` (the closed PR's review is
     over, and its marker would deny every edit of the redo), `git push origin --delete {branch}`,
@@ -159,7 +159,9 @@ from its code, not from a spec.
       open each as a PR: a title for what it does, the body `Carved from #<n> (by <author>) —
       <which part of it this is>`, the label `factory:arch-approved`; the first piece also
       `--label {label}`, the others not (the dispatcher labels each when its step starts).
-   2. Insert one `#<m> <what it does>` item per piece on the card's `Factory steps` checklist
+   2. On a card with no checklist (one step, kept in `{steps_file}`), first create the card's
+      `Factory steps` checklist holding your step's line, then delete that file — the pieces need
+      a list. Insert one `#<m> <what it does>` item per piece on the card's `Factory steps` checklist
       **right before** your item, in merge order (Trello positions between the item before yours
       and yours). You are now the first piece: step {step_n} is its PR.
    3. The adopted PR keeps the last piece — its title, author and discussion stay where its
@@ -314,7 +316,8 @@ On `merged`:
 
 1. `{lock} acquire handoff`.
 2. Run the project's handoff skill, `{handoff_skill}`, with `step={step_n}/{step_total}`. Its step mode asks "test manually
-   first?" as a ping, checks the change on beta, links the PR on the card and checks your item; on
+   first?" as a ping, checks the change on beta, links the PR on the card and checks your item
+   (on a card without a checklist, tell it your item is the line in `{steps_file}`); on
    the last step it also drafts the card move and the requester message and posts them only on the
    developer's yes. It skips the worktree cleanup — the dispatcher owns that.
 3. `{lock} release handoff` — also when the handoff fails.

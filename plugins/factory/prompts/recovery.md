@@ -2,7 +2,7 @@
 `{recovered_state}`. Nothing of the old conversation survives: re-derive where the step stands
 from what is on record — the step's PR and fix PRs (`gh pr list --head {branch}` and
 `--head {branch}-fix…`, their labels, drafts, CI, review comments), the branch's commits, your
-checklist item, and the card. Then continue from the first unfinished phase below; never redo
+item (on {item_home}), and the card. Then continue from the first unfinished phase below; never redo
 finished work and never restart a step that has a PR.
 
 - `in-progress`, no PR and no spec commit on the branch → finish *Spec*.

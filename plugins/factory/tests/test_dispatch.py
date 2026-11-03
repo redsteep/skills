@@ -379,6 +379,11 @@ class DisplayName(unittest.TestCase):
         step = next(a.step for a in decide(world([c])) if isinstance(a, StartStep))
         self.assertEqual(display_name(c, step, 2), "factory · Card a · 1/2")
 
+    def test_a_one_step_card_is_named_without_a_position(self):
+        c = card("a", [todo()])
+        step = next(a.step for a in decide(world([c])) if isinstance(a, StartStep))
+        self.assertEqual(display_name(c, step, 1), "factory · Card a")
+
     def test_issue_names_its_number_and_title(self):
         self.assertEqual(display_name(issue(7)), "factory · #7 Issue 7")
 
@@ -386,6 +391,24 @@ class DisplayName(unittest.TestCase):
         c = card("a")
         long = Card(c.id, c.short, "x" * 80, c.url, True, None)
         self.assertEqual(display_name(long), "factory · " + "x" * 69 + "…")
+
+
+class OneStepCard(unittest.TestCase):
+    """A card cut into one step has no checklist: its step is a task line in a local file."""
+
+    def test_the_step_and_its_tick_are_read_from_the_file(self):
+        from factory_dispatch import file_items
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "abc123.md"
+            for line, item in (("- [ ] [trivial] Rename the column", Item("[trivial] Rename the column", False)),
+                               ("- [x] Rename the column", Item("Rename the column", True))):
+                with self.subTest(line=line):
+                    path.write_text(line + "\n")
+                    self.assertEqual(file_items(path), (item,))
+
+    def test_no_file_leaves_the_card_unsplit(self):
+        from factory_dispatch import file_items
+        self.assertIsNone(file_items(Path("/nonexistent/abc123.md")))
 
 
 class Split(unittest.TestCase):

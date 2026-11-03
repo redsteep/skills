@@ -18,10 +18,10 @@ settles what the analysis finds before anything is cut.
 only — a copy text, a label, a style, a link — with no data, behaviour, API or stored value
 changing, and one PR does it all. Check that with a look at the code (the place exists, nothing
 but the screen reads that text), not with an analysis: then go straight to *Split* and cut it
-as one item prefixed `[trivial] `, which tells the step's worker to skip its spec — an item
+as one step prefixed `[trivial] `, which tells the step's worker to skip its spec — an item
 adopting a PR (`#<n> …`) needs no prefix, it has no spec anyway. Write no brief, and
 `{ping} --done "card split as trivial — no analysis, no spec: <the item>"`: the developer
-undoes it by removing the prefix and the checklist. When in doubt, it is not trivial.
+undoes it by removing the prefix. When in doubt, it is not trivial.
 
 1. **The brief may already exist** — `{brief}`, written by a worker before you. With an
    `Approved-by:` line at its end, it is settled: if it says `Attach: yes`, run the upload
@@ -79,9 +79,12 @@ is harmless — then go to *Split*.
    one step. Each step is one imperative line saying what changes and what is visible when it
    is done. A decision the brief settled may be named in a line; one it left open stays out —
    the step's spec makes it.
-4. Write them as a checklist named exactly **`Factory steps`** on the card, one item per step, in
-   order (create the checklist, then add the items).
-5. End your turn with the list.
+4. **One step → no checklist**: a one-item list on the card tells its reader nothing. Write the
+   step as a single task line, `- [ ] <the step>`, to `{steps_file}` — the dispatcher reads it
+   from there.
+   **Two or more** → a checklist named exactly **`Factory steps`** on the card, one item per step,
+   in order (create the checklist, then add the items).
+5. End your turn with the step or the list.
 
 **If the card is too unclear to analyse** — you would be guessing what the requester wants, not
 how it stands in the system — run `{ping} "card unclear: <your question>"`, end your turn, and

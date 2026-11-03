@@ -77,15 +77,17 @@ systemd timer (2 min) → factory-dispatch (a script, no LLM): read GitHub, Trel
                          → send status events to live workers         (cross-session messaging)
                          → clean up finished steps                    (the only cleanup owner)
 split worker (per card) → analysis (subagent, from the card alone) → brief → ping → approval
-                         → steps on the card's `Factory steps` checklist
+                         → steps on the card's `Factory steps` checklist (one step: no checklist)
 worker (one per step)  → spec (subagent) → design-review → spec on the branch → ping → approval
                          → build (subagents) → pre-pr-review → triage → ping or auto-merge
                          → on merge: the project's handoff skill, step=n/total → item checked → done
 ```
 
 The dispatcher keeps no state of its own beyond `~/.local/state/factory/`: which events and pings
-were already delivered, and two locks. Everything else is re-derived each dispatch from the PRs,
-the card's `Factory steps` checklist and the `feature/factory-*` branches — a reboot loses nothing.
+were already delivered, two locks, the cards' briefs, and the step of a card cut into just one —
+`steps/<card>.md`, a single `- [ ]` line, because a one-item checklist on the card tells its reader
+nothing. Everything else is re-derived each dispatch from the PRs, the card's `Factory steps`
+checklist and the `feature/factory-*` branches — a reboot loses nothing.
 
 **Slots belong to live workers.** A WIP slot is held by a step's live worker from its start until
 the dispatcher stops it after the handoff — not by the step's state. So the slot a merged step

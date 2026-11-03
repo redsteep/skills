@@ -114,6 +114,19 @@ class CardAnalysis(unittest.TestCase):
         self.assertIn("so it can be run\n   again once the work ships", analysis)
         self.assertIn('the brief\'s measurements of the symptom are the\n   "before"', spec)
 
+    def test_a_one_step_card_gets_no_checklist_and_its_worker_ticks_the_file(self):
+        import sys
+        sys.path.insert(0, str(PROMPTS.parent / "scripts"))
+        from factory_common import Profile
+        from factory_dispatch import STEPS_DIR, Card, Item, Step, render_prompt
+        split = section((PROMPTS / "split.md").read_text(), "Split")
+        self.assertIn("**One step → no checklist**", split)
+        card = Card("c1", "abc123", "A card", "https://trello.com/c/abc123", True,
+                    (Item("Rename it", False),), steps_file=True)
+        text = render_prompt("step.md", Path("/repo"), Profile(""), "factory-abc123-s1", card=card,
+                             step=Step(card, 1, card.items[0], "pending"), total=1)
+        self.assertIn(f"your step is the one task line in `{STEPS_DIR / 'abc123.md'}`", text)
+
     def test_a_trivial_card_skips_the_analysis_and_its_step_the_spec(self):
         import sys
         sys.path.insert(0, str(PROMPTS.parent / "scripts"))

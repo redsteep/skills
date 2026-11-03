@@ -181,8 +181,8 @@ class Summary(unittest.TestCase):
         self.assertIn("cards 2/3 · issues 0/1", text)
         self.assertLess(text.index("Needs you"), text.index("Steps"))
         steps_part = text[text.index("Steps"):]
-        self.assertLess(steps_part.index("Card c1 · 1/1 — waits-you · PR #5 open ci passed"),
-                        steps_part.index("Card c2 · 1/1 — working"))
+        self.assertLess(steps_part.index("Card c1 — waits-you · PR #5 open ci passed"),
+                        steps_part.index("Card c2 — working"))
 
 
 
@@ -197,7 +197,7 @@ class Page(unittest.TestCase):
         html = self.page(w, conversations={"factory-c1-s1": "https://claude.ai/code/session_X"})
         self.assertIn("<title>(1) factory</title>", html)
         need = html[html.index('<div class="need'):html.index("<h2>Steps")]
-        self.assertIn("Card c1 · 1/1", need)
+        self.assertIn("Card c1", need)
         self.assertIn('href="https://claude.ai/code/session_X"', need)
         table = html[html.index("<tbody>"):]
         self.assertLess(table.index("waits for you"), table.index("working"))
