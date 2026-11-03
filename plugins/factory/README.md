@@ -250,9 +250,19 @@ in the Slack DM) and type. Events from the dispatcher start with `Factory event:
    standing one: when the checks have not finished (the usual case, since the push of your queued
    changes restarted them), the worker waits and merges on `ci-passed` without asking again —
    GitHub cannot be relied on to hold a merge for CI, so the worker is where that waiting lives.
-4. **The prompts** — a worker writes no code before your approval, posts nothing to anyone but you
+4. **`prod-write-gate` hook** (optional, profile `## Prod writes`) — a worker reads production
+   freely and writes to it only on your explicit word, through the one **Command** the profile
+   declares. The word (**Word**, default `PROD OK`) is read where an `LGTM` is read — this
+   session's transcript, a message you typed — and covers **one** run: the next write asks again,
+   because a standing permission is not a command. Routes that hand out the credentials (the
+   profile's bare bullets, e.g. a connection helper a worker could `source`) are denied outright,
+   which is what makes the door the only door: the runner deny list matches the text of a command,
+   so a script that reaches the cloud inside itself was never covered by it. Two rails your word
+   does not lift: a schema change goes by migration, and an `UPDATE`/`DELETE` with no `WHERE` is
+   refused.
+5. **The prompts** — a worker writes no code before your approval, posts nothing to anyone but you
    without your yes, and its judgement can only send a PR to review, never past it.
-5. **Locks** — handoffs and migration round-trips run one worker at a time (`factory-lock`).
+6. **Locks** — handoffs and migration round-trips run one worker at a time (`factory-lock`).
 
 ## Files
 
@@ -264,6 +274,7 @@ in the Slack DM) and type. Events from the dispatcher start with `Factory event:
 | `scripts/factory_hold.py` | `factory-hold` — puts a card on hold (the hold label), or `--off` |
 | `scripts/factory_attach.py` | `factory-attach` — puts an approved card brief on the Trello card, replacing an earlier upload |
 | `scripts/factory_download.py` | `factory-download` — fetches a card's uploaded files (screenshots, mockups) for the analyst and the spec writer, with the key from `.env` |
+| `scripts/prod_write_gate.py` | `PreToolUse(Bash)` — production writes: the declared door, your word, one word per run |
 | `scripts/factory_status.py` | `factory-status [--json] [--live <repo>]` — the snapshot each dispatch writes |
 | `scripts/factory_page.py` | the status page, rendered from the snapshot |
 | `systemd/factory-page.service` | serves the status page on localhost, where `tailscale serve` cannot serve the folder |
