@@ -25,7 +25,7 @@ from factory_page import STALE_AFTER, render  # noqa: E402
 from factory_common import PAUSE_FILE, STATE_DIR, Profile, conversation_url, load_repo_secrets, split_name  # noqa: E402
 from factory_dispatch import (  # noqa: E402
     BRIEFS_DIR, DONE, DROPPED_STATE, MERGED, PENDING, VERSION, Cleanup, QueueEmpty, Reinstruct, ReviewIdle,
-    ReviewOff, SendEvent, StartSplit, StartStep, Step, World, _alive, _eligible_step, _first_open,
+    ReviewOff, SendEvent, Shelve, StartSplit, StartStep, Step, World, _alive, _eligible_step, _first_open,
     _issues_started_since, card_steps, display_name, slots_held, step_all_prs, step_prs,
 )
 
@@ -35,8 +35,9 @@ PAGE_FILE = STATE_DIR / "www" / "index.html"
 SCHEMA = 1
 
 # What a step is doing, from the developer's side.
-WORKING, WAITS_YOU, WAITS_CI, WAKING, RESTARTING, STARTING, QUEUED, NO_WORKER, LATER = (
-    "working", "waits-you", "waits-ci", "waking", "restarting", "starting", "queued", "no-worker", "later")
+WORKING, WAITS_YOU, WAITS_CI, WAKING, RESTARTING, STARTING, QUEUED, NO_WORKER, LATER, ON_HOLD = (
+    "working", "waits-you", "waits-ci", "waking", "restarting", "starting", "queued", "no-worker", "later",
+    "on-hold")
 
 
 def _iso(at: datetime | None) -> str | None:
@@ -54,6 +55,12 @@ def activity(step: Step, world: World, actions: list, eligible: Step | None) -> 
     dispatch just sent it an event."""
     if step.state in (DONE, DROPPED_STATE):
         return step.state
+    if step.card.held:
+        # Postponed: nothing waits for the developer. A busy worker is wrapping up before its shelf.
+        info = world.workers.get(step.worker)
+        if info and info.get("status") not in ("idle", "dead", "restarting"):
+            return WORKING
+        return LATER if step.state == PENDING and step is not eligible else ON_HOLD
     if any(isinstance(a, StartStep) and a.step.worker == step.worker for a in actions):
         return STARTING
     info = world.workers.get(step.worker)
@@ -93,6 +100,9 @@ def describe(action) -> str | None:
         return f"review mode off for {action.branch} (no PR left)"
     if isinstance(action, QueueEmpty):
         return f"{'issue' if action.issues else 'card'} queue empty ({action.busy}/{action.wip} busy)"
+    if isinstance(action, Shelve):
+        return f"put on hold: {action.worker}" + (
+            f" (PR {', '.join(f'#{n}' for n in action.drafts)} → draft)" if action.drafts else "")
     if isinstance(action, Cleanup):
         return f"cleaned up {action.worker or action.branch}"
     return None
@@ -115,6 +125,9 @@ def split_activity(card, world: World, actions: list) -> str:
     """What a card's split worker is doing, by the rules a step's worker is read by: an idle one
     has pinged and waits for the developer — the brief to talk through, or a question."""
     name = split_name(card.short)
+    info = world.workers.get(name)
+    if card.held:
+        return WORKING if info and info.get("status") not in ("idle", "dead", "restarting") else ON_HOLD
     if any(isinstance(a, StartSplit) and a.card.short == card.short for a in actions):
         return STARTING
     info = world.workers.get(name)
@@ -133,9 +146,10 @@ def snapshot(world: World, actions: list, failed: list = (), conversations: dict
     items, attention = [], []
     for card in world.cards:
         entry = {"kind": "issue" if card.issue is not None else "card", "short": card.short,
-                 "name": card.name, "url": card.url, "ready": card.ready, "issue": card.issue}
+                 "name": card.name, "url": card.url, "ready": card.ready, "issue": card.issue,
+                 "held": card.held}
         if card.items is None:
-            if not card.ready:
+            if not card.ready and not card.held:
                 continue
             split = split_name(card.short)
             phase, act = brief_phase(briefs.get(card.short)), split_activity(card, world, actions)
@@ -151,7 +165,7 @@ def snapshot(world: World, actions: list, failed: list = (), conversations: dict
             items.append(entry)
             continue
         steps = all_steps[card.short]
-        if not card.ready and not any(_alive(world, s.worker) for s in steps):
+        if not card.ready and not card.held and not any(_alive(world, s.worker) for s in steps):
             continue
         eligible = _eligible_step(steps) if _first_open(steps) is not None else None
         entry["steps"] = []
@@ -263,7 +277,7 @@ def _ago(seconds: int | None) -> str:
     return f"{seconds // 3600} h ago"
 
 
-_ORDER = [WAITS_YOU, NO_WORKER, WAKING, WAITS_CI, WORKING, RESTARTING, STARTING, QUEUED]
+_ORDER = [WAITS_YOU, NO_WORKER, WAKING, WAITS_CI, WORKING, RESTARTING, STARTING, QUEUED, ON_HOLD]
 
 
 def summary(status: dict) -> str:
