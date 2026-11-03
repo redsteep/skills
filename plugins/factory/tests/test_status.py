@@ -215,6 +215,7 @@ class Page(unittest.TestCase):
         self.assertIn("<title>(1) factory</title>", html)
         need = html[html.index('<div class="need'):html.index("<h2>Steps")]
         self.assertIn("Card c1", need)
+        self.assertIn('href="claude://claude.ai/code/session_X"', need)
         self.assertIn('href="https://claude.ai/code/session_X"', need)
         table = html[html.index("<tbody>"):]
         self.assertLess(table.index("waits for you"), table.index("working"))

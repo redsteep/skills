@@ -154,8 +154,9 @@ and its drafts are marked ready. A session that is gone by then is replaced the 
 the branch. A worker told "put it on hold" by the developer runs `factory-hold` itself
 (`--off` takes the card off hold); issues have no hold — take their label off instead.
 
-A worker is a normal Claude Code session: open it in the Claude app (Code → its name, or the link
-in the Slack DM) and type. Events from the dispatcher start with `Factory event:`.
+A worker is a normal Claude Code session: open it in the Claude app (Code → its name, the link
+in the Slack DM, or **Open** on the status page, which opens it in the Claude desktop app through
+`claude://` — *web* next to it is the same session in a browser) and type. Events from the dispatcher start with `Factory event:`.
 
 ## Setup
 
