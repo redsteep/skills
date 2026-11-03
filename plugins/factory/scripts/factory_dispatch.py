@@ -33,7 +33,7 @@ from factory_common import (  # noqa: E402
     PAUSE_FILE, STATE_DIR, Profile, issue_short, last_developer_message, list_agents, live_workers,
     load_repo_secrets, mark_launched, record_title, reviews_on,
     parse_worker_name, run,
-    sent_store, split_name, step_branch, step_name,
+    resolve_branch, sent_store, slugify, split_name, step_branch, step_name,
 )
 
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent
@@ -158,6 +158,7 @@ class Step:
     state: str
     pr_number: int | None = None     # an adopted PR: the item names it as `#<n> …`
     head: str | None = None          # that PR's branch, once known
+    resolved: str = ""               # the branch the world already shows for this step
 
     @property
     def worker(self) -> str:
@@ -165,13 +166,14 @@ class Step:
 
     @property
     def branch(self) -> str:
-        """The step's own branch: an adopted PR's branch, else the factory's name for it."""
-        return self.head or step_branch(self.card.short, self.n)
+        """The step's own branch: an adopted PR's branch, else the one `card_steps` resolved."""
+        return self.head or self.resolved or step_branch(self.card.short, self.n)
 
     @property
     def fix_prefix(self) -> str:
-        """Fix PRs always get factory branches, adopted step or not."""
-        return step_branch(self.card.short, self.n) + "-fix"
+        """Fix PRs always get factory branches, adopted step or not -- so this comes from the
+        factory's own name for the step (`resolved`), never from an adopted PR's branch."""
+        return (self.resolved or step_branch(self.card.short, self.n)) + "-fix"
 
 
 # --- actions -----------------------------------------------------------------------------
@@ -295,21 +297,24 @@ def adopted_number(item: Item) -> int | None:
 
 def card_steps(card: Card, world: World) -> list[Step]:
     steps = []
+    slug = slugify(card.name)
+    known = set(world.branches) | {p.head for p in world.prs}
     for n, item in enumerate(card.items or (), start=1):
         number = adopted_number(item)
         if number is None:
-            branch = step_branch(card.short, n)
+            branch = resolve_branch(known, card.short, n, slug)
             pr, fixes = step_prs(world.prs, branch)
             state = derive_step_state(item, branch in world.branches, pr, fixes)
-            steps.append(Step(card, n, item, state))
+            steps.append(Step(card, n, item, state, resolved=branch))
             continue
         # An adopted PR is the factory's only once the dispatcher has labelled it: until then an
         # open one waits its turn like any pending step (a stacked PR behind its base, say).
         pr = next((p for p in world.prs if p.number == number), None)
         taken = pr if pr is not None and (pr.state != "OPEN" or world.label in pr.labels) else None
-        fixes = [p for p in world.prs if p.head.startswith(step_branch(card.short, n) + "-fix")]
+        branch = resolve_branch(known, card.short, n, slug)
+        fixes = [p for p in world.prs if p.head.startswith(branch + "-fix")]
         state = derive_step_state(item, False, taken, fixes)
-        steps.append(Step(card, n, item, state, number, pr.head if pr else None))
+        steps.append(Step(card, n, item, state, number, pr.head if pr else None, branch))
     return steps
 
 
@@ -509,8 +514,9 @@ def decide(world: World) -> list:
             continue
         step = _step(all_steps, short, n)
         if card is None or not card.ready or (step is not None and step.state == DONE):
-            branch = step.branch if step else step_branch(short, n)
-            actions.append(Cleanup(name, branch, step_branch(short, n) + "-fix"))
+            fallback = resolve_branch(world.branches, short, n, "")
+            branch = step.branch if step else fallback
+            actions.append(Cleanup(name, branch, step.fix_prefix if step else fallback + "-fix"))
     for steps in all_steps.values():
         for s in steps:
             if s.state == DONE and s.branch in world.branches and s.worker not in world.workers:
@@ -762,7 +768,7 @@ class Executor:
             run(["gh", "pr", "edit", str(s.pr_number), "--add-label", self.profile.get("GitHub", "Label", "factory")],
                 cwd=self.repo)
         else:
-            worktree = self._worktrees / s.worker
+            worktree = self._worktrees / s.branch.rsplit("/", 1)[-1]
             if not worktree.exists():
                 run(["git", "fetch", "origin", self._base], cwd=self.repo)
                 if s.branch in load_branches(self.repo):
