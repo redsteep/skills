@@ -31,9 +31,9 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from factory_common import (  # noqa: E402
     PAUSE_FILE, STATE_DIR, Profile, issue_short, last_developer_message, list_agents, live_workers,
-    load_repo_secrets, mark_launched, record_title, reviews_on,
+    forget_seen, load_repo_secrets, mark_launched, record_title, reviews_on,
     parse_worker_name, run,
-    sent_store, split_name, step_branch, step_name,
+    resolve_branch, sent_store, slugify, split_name, step_branch, step_name,
 )
 
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent
@@ -53,6 +53,10 @@ BRIEFS_DIR = STATE_DIR / "briefs"
 # ticks it there; a checklist on the card, once one exists, wins.
 STEPS_DIR = STATE_DIR / "steps"
 ATTACHMENTS_DIR = STATE_DIR / "attachments"   # a card's files, fetched by factory-download
+# Workers the dispatcher stopped because their card went on hold: worker → the session to resume,
+# when it was shelved, and the PRs it turned to drafts. The one record of a hold the world lacks —
+# the label says the card is on hold, this says which conversation to pick up when it comes off.
+SHELF_FILE = STATE_DIR / "shelved.json"
 
 # Step states (spec: "Step state — the one predicate every rule reads").
 PENDING, IN_PROGRESS, MERGED, FIXING, DONE, DROPPED_STATE = (
@@ -94,6 +98,8 @@ class Card:
     items: tuple[Item, ...] | None   # None = no "Factory steps" checklist yet
     issue: int | None = None         # a GitHub issue standing in for a card: one step, its own item
     steps_file: bool = False         # its one step comes from STEPS_DIR, not a checklist
+    held: bool = False               # the hold label: postponed, not stopped -- nothing starts,
+                                     # its idle workers are shelved, nothing is cleaned up
 
 
 ISSUE_STEPS = "Factory steps"
@@ -158,6 +164,7 @@ class Step:
     state: str
     pr_number: int | None = None     # an adopted PR: the item names it as `#<n> …`
     head: str | None = None          # that PR's branch, once known
+    resolved: str = ""               # the branch the world already shows for this step
 
     @property
     def worker(self) -> str:
@@ -165,13 +172,14 @@ class Step:
 
     @property
     def branch(self) -> str:
-        """The step's own branch: an adopted PR's branch, else the factory's name for it."""
-        return self.head or step_branch(self.card.short, self.n)
+        """The step's own branch: an adopted PR's branch, else the one `card_steps` resolved."""
+        return self.head or self.resolved or step_branch(self.card.short, self.n)
 
     @property
     def fix_prefix(self) -> str:
-        """Fix PRs always get factory branches, adopted step or not."""
-        return step_branch(self.card.short, self.n) + "-fix"
+        """Fix PRs always get factory branches, adopted step or not -- so this comes from the
+        factory's own name for the step (`resolved`), never from an adopted PR's branch."""
+        return (self.resolved or step_branch(self.card.short, self.n)) + "-fix"
 
 
 # --- actions -----------------------------------------------------------------------------
@@ -243,6 +251,18 @@ def queue_key(issues: bool) -> str:
     return f"queue-empty:{'issues' if issues else 'cards'}"
 
 
+def hold_key(worker: str) -> str:
+    return f"hold:{worker}"
+
+
+@dataclass(frozen=True)
+class Shelve:
+    """The card went on hold: stop its idle worker without removing it, so it is resumed -- same
+    conversation, same branch -- once the hold label comes off. Its open PRs turn to drafts."""
+    worker: str
+    drafts: tuple[int, ...] = ()
+
+
 @dataclass(frozen=True)
 class Cleanup:
     worker: str | None               # live session to stop, if any
@@ -295,21 +315,24 @@ def adopted_number(item: Item) -> int | None:
 
 def card_steps(card: Card, world: World) -> list[Step]:
     steps = []
+    slug = slugify(card.name)
+    known = set(world.branches) | {p.head for p in world.prs}
     for n, item in enumerate(card.items or (), start=1):
         number = adopted_number(item)
         if number is None:
-            branch = step_branch(card.short, n)
+            branch = resolve_branch(known, card.short, n, slug)
             pr, fixes = step_prs(world.prs, branch)
             state = derive_step_state(item, branch in world.branches, pr, fixes)
-            steps.append(Step(card, n, item, state))
+            steps.append(Step(card, n, item, state, resolved=branch))
             continue
         # An adopted PR is the factory's only once the dispatcher has labelled it: until then an
         # open one waits its turn like any pending step (a stacked PR behind its base, say).
         pr = next((p for p in world.prs if p.number == number), None)
         taken = pr if pr is not None and (pr.state != "OPEN" or world.label in pr.labels) else None
-        fixes = [p for p in world.prs if p.head.startswith(step_branch(card.short, n) + "-fix")]
+        branch = resolve_branch(known, card.short, n, slug)
+        fixes = [p for p in world.prs if p.head.startswith(branch + "-fix")]
         state = derive_step_state(item, False, taken, fixes)
-        steps.append(Step(card, n, item, state, number, pr.head if pr else None))
+        steps.append(Step(card, n, item, state, number, pr.head if pr else None, branch))
     return steps
 
 
@@ -366,7 +389,7 @@ def daemon_log(limit: int = 200_000) -> str:
         return ""
 
 
-def resumable_session(same_name: list[dict], log: str) -> str | None:
+def resumable_session(same_name: list[dict], log: str, shelved: str | None = None) -> str | None:
     """The session of this worker to continue instead of starting a new one, or None.
 
     A worker waiting for the developer sits at an idle prompt, and that is exactly what the
@@ -385,10 +408,15 @@ def resumable_session(same_name: list[dict], log: str) -> str | None:
     exists`), and a fresh worker that rebuilds the worktree from the world is the right answer
     there. A version skew is a retirement — resuming cures it, since the session comes back under
     the current daemon.
+
+    A session the dispatcher shelved itself (`shelved`, its id from SHELF_FILE) is resumable too:
+    it was stopped at an idle prompt on purpose, when its card went on hold.
     """
     dead = [a for a in same_name if not a.get("pid") and a.get("sessionId")]
     if not dead:
         return None
+    if shelved and any(a["sessionId"] == shelved for a in dead):
+        return shelved
     retired, crashed = set(), set()
     for line in log.splitlines():
         if m := _RETIRE.search(line):
@@ -419,11 +447,35 @@ def decide(world: World) -> list:
 
     # 1. A ready card with no step list gets one split worker.
     for card in world.cards:
-        if card.ready and card.items is None and not _alive(world, split_name(card.short)):
+        if card.ready and not card.held and card.items is None and not _alive(world, split_name(card.short)):
             actions.append(StartSplit(card))
 
+    # 1b. A card on hold is postponed, not stopped: its idle workers are shelved -- stopped, kept,
+    # resumed when the label comes off -- a busy one is told to wrap up first, and nothing of it
+    # starts, hears events or is cleaned up. Off hold, the hold notice may be sent again.
     for card in world.cards:
-        if not card.ready:
+        names = [split_name(card.short)] + [s.worker for s in all_steps.get(card.short, [])]
+        if not card.held:
+            again = tuple(hold_key(n) for n in names if hold_key(n) in world.sent)
+            if again:
+                actions.append(Unsent(again))
+            continue
+        for name in names:
+            info = world.workers.get(name)
+            if info is None or info.get("status") in ("dead", "restarting"):
+                continue
+            if info.get("status") == "idle":
+                step = next((s for s in all_steps.get(card.short, []) if s.worker == name), None)
+                drafts = tuple(p.number for p in step_all_prs(step, world.prs) if p.state == "OPEN"
+                               and p.head.startswith(step_branch(card.short, step.n))) if step else ()
+                actions.append(Shelve(name, drafts))
+            elif hold_key(name) not in world.sent:
+                actions.append(SendEvent(name, hold_key(name), "Factory event: on-hold — the developer "
+                                         "postponed this card. Bring what you are doing to a safe point, "
+                                         "commit and push it, and end your turn; start nothing new."))
+
+    for card in world.cards:
+        if not card.ready or card.held:
             continue
         for step in all_steps.get(card.short, []):
             prs = step_all_prs(step, world.prs)
@@ -460,7 +512,7 @@ def decide(world: World) -> list:
     # of that name lives. A worker that cuts an adopted PR inserts the pieces before it on the
     # checklist: the adopted PR, still labelled, then reads in-progress behind them, and the
     # worker's own step reads pending until its piece is labelled.
-    ready = [c for c in world.cards if c.ready]
+    ready = [c for c in world.cards if c.ready and not c.held]
     under_way = [s for c in ready if (s := _first_open(all_steps.get(c.short, []))) is not None
                  and s.state in HOLDS_SLOT and not _alive(world, s.worker)]
     def started(card: Card) -> bool:
@@ -503,14 +555,17 @@ def decide(world: World) -> list:
             continue
         short, n = parsed
         card = next((c for c in world.cards if c.short == short), None)
+        if card is not None and card.held:
+            continue  # postponed: its sessions and branches wait for the hold to lift
         if n is None:
             if card is None or not card.ready or card.items is not None:
                 actions.append(Cleanup(name, None))
             continue
         step = _step(all_steps, short, n)
         if card is None or not card.ready or (step is not None and step.state == DONE):
-            branch = step.branch if step else step_branch(short, n)
-            actions.append(Cleanup(name, branch, step_branch(short, n) + "-fix"))
+            fallback = resolve_branch(world.branches, short, n, "")
+            branch = step.branch if step else fallback
+            actions.append(Cleanup(name, branch, step.fix_prefix if step else fallback + "-fix"))
     for steps in all_steps.values():
         for s in steps:
             if s.state == DONE and s.branch in world.branches and s.worker not in world.workers:
@@ -593,6 +648,7 @@ def _trello(method: str, path: str, **params) -> Any:
 def load_cards(profile: Profile) -> tuple[Card, ...]:
     board = profile.require("Trello", "Board")
     ready_name = profile.get("Trello", "Ready label", "ready")
+    hold_name = (profile.get("Trello", "Hold label", "on hold") or "").casefold()
     checklist_name = profile.get("Trello", "Checklist", "Factory steps")
     labels = {l["id"]: l["name"] for l in _trello("GET", f"boards/{board}/labels", fields="name")}
     lists = {l["id"]: l["pos"] for l in _trello("GET", f"boards/{board}/lists", fields="pos")}
@@ -601,6 +657,7 @@ def load_cards(profile: Profile) -> tuple[Card, ...]:
     cards = []
     for c in sorted(raw, key=lambda c: (lists.get(c["idList"], 0), c["pos"])):
         ready = any((labels.get(i) or "").casefold() == ready_name.casefold() for i in c["idLabels"])
+        held = bool(hold_name) and any((labels.get(i) or "").casefold() == hold_name for i in c["idLabels"])
         checklist = next((cl for cl in c.get("checklists", []) if cl["name"] == checklist_name), None)
         items, from_file = None, False
         if checklist is not None:
@@ -609,9 +666,9 @@ def load_cards(profile: Profile) -> tuple[Card, ...]:
         else:
             items = file_items(STEPS_DIR / f"{c['shortLink']}.md")
             from_file = items is not None
-        if ready or items is not None:
+        if ready or held or items is not None:
             cards.append(Card(c["id"], c["shortLink"], c["name"], c["shortUrl"], ready, items,
-                              steps_file=from_file))
+                              steps_file=from_file, held=held))
     return tuple(cards)
 
 
@@ -762,7 +819,7 @@ class Executor:
             run(["gh", "pr", "edit", str(s.pr_number), "--add-label", self.profile.get("GitHub", "Label", "factory")],
                 cwd=self.repo)
         else:
-            worktree = self._worktrees / s.worker
+            worktree = self._worktrees / s.branch.rsplit("/", 1)[-1]
             if not worktree.exists():
                 run(["git", "fetch", "origin", self._base], cwd=self.repo)
                 if s.branch in load_branches(self.repo):
@@ -853,6 +910,24 @@ class Executor:
         with sent_store() as sent:
             sent.difference_update(a.keys)
 
+    def _Shelve(self, a: Shelve) -> None:
+        live = [x for x in list_agents() if x["name"] == a.worker and x.get("pid") and x.get("sessionId")]
+        if not live:
+            return
+        # Recorded before the stop: a session stopped with no record of it would be replaced, not
+        # resumed, and its conversation -- the questions asked, the answers given -- lost.
+        drafted = []
+        for number in a.drafts:  # off the review queue while on hold; ready again on resume
+            try:
+                run(["gh", "pr", "ready", str(number), "--undo"], cwd=self.repo)
+                drafted.append(number)
+            except RuntimeError as exc:
+                print(f"factory: PR #{number} not turned to a draft: {exc}", file=sys.stderr)
+        shelve(a.worker, live[-1]["sessionId"], drafted)
+        for agent in live:
+            run(["claude", "stop", agent["id"]], check=False)  # no `rm`: it is to be resumed
+        forget_seen(a.worker)  # stopped on purpose: no `restarting` grace holding its slot
+
     def _Cleanup(self, a: Cleanup) -> None:
         if a.worker:
             for agent in list_agents():  # every session of that name, a dead twin included
@@ -875,7 +950,22 @@ class Executor:
         same_name = [a for a in list_agents() if a["name"] == name]
         if any(a.get("pid") for a in same_name):
             raise RuntimeError(f"{name} is live again — not launching a twin")
-        resume = resumable_session(same_name, daemon_log())
+        shelf = shelved_entry(name)
+        resume = resumable_session(same_name, daemon_log(), shelf.get("session") if shelf else None)
+        if shelf and resume == shelf.get("session"):
+            # Back from a hold: the same conversation, told how long it was away and what to
+            # re-read -- the card may have changed, the base has moved, a question may be stale.
+            prompt = render_prompt("unshelved.md", self.repo, self.profile, name, **ctx)
+            run(["claude", "--bg", "--resume", resume, "--",
+                 prompt.replace("{shelved_at}", shelf.get("at", "")[:10] or "earlier")],
+                cwd=cwd, env={"FACTORY_WORKER": name, "FACTORY_REPO": str(self.repo)})
+            mark_launched(name)
+            for number in shelf.get("drafts", []):
+                run(["gh", "pr", "ready", str(number)], cwd=self.repo, check=False)
+            unshelve(name)
+            return
+        if shelf:
+            unshelve(name)  # its session is gone: a fresh worker rebuilds from the branch
         if resume:
             # Its conversation holds what the world does not: what it has already checked, the
             # question it asked, and the developer's answer — including an `LGTM`, which the
@@ -930,6 +1020,36 @@ class Executor:
 NOT_DENIED = ("Bash(gh pr merge", "Bash(gh issue close", "Bash(git push --force", "Bash(gh issue comment",
               "Bash(gh issue edit")
 NOT_DENIED_TO_ISSUES: tuple[str, ...] = ()
+
+
+def _read_shelf() -> dict:
+    try:
+        return json.loads(SHELF_FILE.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def _write_shelf(shelf: dict) -> None:
+    SHELF_FILE.parent.mkdir(parents=True, exist_ok=True)
+    tmp = SHELF_FILE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(shelf, indent=1))
+    tmp.replace(SHELF_FILE)
+
+
+def shelve(worker: str, session: str, drafts: list[int]) -> None:
+    shelf = _read_shelf()
+    shelf[worker] = {"session": session, "at": datetime.now(timezone.utc).isoformat(), "drafts": drafts}
+    _write_shelf(shelf)
+
+
+def shelved_entry(worker: str) -> dict | None:
+    return _read_shelf().get(worker)
+
+
+def unshelve(worker: str) -> None:
+    shelf = _read_shelf()
+    if shelf.pop(worker, None) is not None:
+        _write_shelf(shelf)
 
 
 def deny_list(profile: Profile, issue: bool = False) -> list[str]:
@@ -1020,6 +1140,8 @@ def render_prompt(template: str, repo: Path, profile: Profile, name: str, card: 
         "download": (f'{shlex.quote(str(PLUGIN_ROOT / "scripts/factory-download"))} '
                      f'--repo {shlex.quote(str(repo))} --card {card.id} '
                      f'--out {shlex.quote(str(ATTACHMENTS_DIR / card.short))}'),
+        "hold": (f'{shlex.quote(str(PLUGIN_ROOT / "scripts/factory-hold"))} '
+                 f'--repo {shlex.quote(str(repo))} --card {card.id}'),
         "attach": (f'{shlex.quote(str(PLUGIN_ROOT / "scripts/factory-attach"))} '
                    f'--repo {shlex.quote(str(repo))} --card {card.id}'),
     }

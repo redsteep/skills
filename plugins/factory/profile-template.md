@@ -9,6 +9,8 @@ Section and key names are read by code — keep them. Values in backticks.
 - **Doing:** `<list id>` — a card moves here when its split starts
 - **Testing:** `<list id>` — the last step's handoff proposes moving the card here
 - **Ready label:** `ready`
+- **Hold label:** `on hold` — postpones a card: nothing of it starts, its idle workers are
+  stopped and kept, nothing is cleaned up; taken off, the card resumes where it was
 - **Checklist:** `Factory steps`
 
 ## GitHub

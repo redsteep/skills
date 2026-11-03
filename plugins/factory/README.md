@@ -89,6 +89,16 @@ were already delivered, two locks, the cards' briefs, and the step of a card cut
 nothing. Everything else is re-derived each dispatch from the PRs, the card's `Factory steps`
 checklist and the `feature/factory-*` branches — a reboot loses nothing.
 
+**Branch names read as the card, not as its id.** A step's branch is
+`feature/factory-<card name>-s<n>-<card short id>` — the readable part first, the short id in the
+tail — and its worktree is named after the branch, so `.worktrees/` reads as the work. Only the
+tail is load-bearing: a card gets renamed and an issue's title edited, so the dispatcher finds a
+step's branch by `-s<n>-<short>`, which no rename touches, and keeps whatever branch already
+exists over the name it would cut today. A Russian card name is transliterated, not dropped. A
+branch cut before this version (`feature/factory-<short>-s<n>`) keeps resolving — both shapes are
+the step's own. The **worker's session name** stays `factory-<short>-s<n>`: it is the routing key
+every event, slot and cleanup resolves by, so it carries no name that can change.
+
 **Slots belong to live workers.** A WIP slot is held by a step's live worker from its start until
 the dispatcher stops it after the handoff — not by the step's state. So the slot a merged step
 frees goes to the next step of the same card or issue, which has started first, rather than to
@@ -128,6 +138,21 @@ update would otherwise pass it by. The first dispatch after an update re-renders
 instructions for its step and sends it `instructions updated to <version> — read <file>`; a
 worker started on the current version is skipped. Scripts already run the new code; hooks the
 update added reach only workers started after it.
+
+**Postponing a card.** A card with the **hold label** (`on hold` by default) is set aside, not
+stopped. Nothing of it starts — no split, no step, no replacement — it hears no events, and
+nothing of it is cleaned up: its branches, the spec on them, its brief and every worker's
+conversation stay. Its idle workers are **shelved**: stopped without being removed (the
+dispatcher records each session in `~/.local/state/factory/shelved.json`), so their WIP slot goes
+to the next card; their open PRs turn to drafts. A worker busy when the label comes is told
+(`on-hold`) to reach a safe point, push and end its turn, and is shelved once idle. The hold
+wins over a missing `ready` label, so taking `ready` off a held card destroys nothing. Take the
+label off and the card's step queues for a slot like any step under way; when it gets one, the
+shelved conversation is **resumed** (`claude --bg --resume`) with `prompts/unshelved.md`: it
+re-reads the card and the PR, catches its branch up with the base, re-asks an open question once,
+and its drafts are marked ready. A session that is gone by then is replaced the usual way, from
+the branch. A worker told "put it on hold" by the developer runs `factory-hold` itself
+(`--off` takes the card off hold); issues have no hold — take their label off instead.
 
 A worker is a normal Claude Code session: open it in the Claude app (Code → its name, or the link
 in the Slack DM) and type. Events from the dispatcher start with `Factory event:`.
@@ -187,7 +212,7 @@ in the Slack DM) and type. Events from the dispatcher start with `Factory event:
 - **Logs:** `journalctl --user -u factory-dispatch` (each dispatch prints what it did).
 - **Status:** `scripts/factory-status` — what the last dispatch saw: slots busy per pool, what
   waits for you (with the worker's conversation link), every step under way and what it is doing
-  (`working`, `waits-you`, `waits-ci`, `waking`, `queued`, `no-worker`…), a card still to split
+  (`working`, `waits-you`, `waits-ci`, `waking`, `queued`, `no-worker`, `on-hold`…), a card still to split
   by its brief (`analysing`, `brief` — before you, `approved` — being cut), and what the dispatch
   did. Each dispatch writes it to `~/.local/state/factory/status.json` after acting, from the same
   reading of the world it routed by; `--json` prints that file (plus `paused`, `age_seconds`),
@@ -198,7 +223,11 @@ in the Slack DM) and type. Events from the dispatcher start with `Factory event:
 - **A worker with no process** (listed by `claude agents` but not running) counts as dead: its
   step gets a fresh worker, or its session is removed when the step is done. One seen alive in the
   last 10 minutes counts as restarting instead — never replaced, so a restart gets no twin.
-- **Stop a card:** remove its `ready` label; idle workers of that card are cleaned up.
+- **Postpone a card:** add the `on hold` label (profile `Trello` → `Hold label`), or tell its
+  worker "put it on hold" — it runs `factory-hold`. See *Postponing a card* below.
+- **Stop a card:** remove its `ready` label; idle workers of that card are cleaned up — their
+  sessions **and** their step branches, a committed spec included. To set a card aside for later,
+  put it on hold instead.
 
 ## Safety
 
@@ -232,6 +261,7 @@ in the Slack DM) and type. Events from the dispatcher start with `Factory event:
 | `scripts/factory_dispatch.py` | the dispatcher; all routing is `decide()`, a pure function |
 | `scripts/auto_merge_gate.py` | the PreToolUse gate hook |
 | `scripts/factory_ping.py` | `factory-ping` — Slack DM, once per reason per step; `--factory` for the dispatcher's own notices |
+| `scripts/factory_hold.py` | `factory-hold` — puts a card on hold (the hold label), or `--off` |
 | `scripts/factory_attach.py` | `factory-attach` — puts an approved card brief on the Trello card, replacing an earlier upload |
 | `scripts/factory_download.py` | `factory-download` — fetches a card's uploaded files (screenshots, mockups) for the analyst and the spec writer, with the key from `.env` |
 | `scripts/factory_status.py` | `factory-status [--json] [--live <repo>]` — the snapshot each dispatch writes |
@@ -240,5 +270,5 @@ in the Slack DM) and type. Events from the dispatcher start with `Factory event:
 | `www/` | the status page's icons, copied beside it |
 | `scripts/factory_lock.py` | `factory-lock acquire|release handoff|migration` |
 | `scripts/remove-step-worktree.sh` | non-interactive cleanup of a finished step |
-| `prompts/` | split, analysis, step, recovery and resume worker prompts; `triage.md` and `analysis.md` also run alone |
+| `prompts/` | split, analysis, step, recovery, resume and unshelve worker prompts; `triage.md` and `analysis.md` also run alone |
 | `tests/` | `python3 -m unittest discover -s plugins/factory/tests` |

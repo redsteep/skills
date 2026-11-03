@@ -7,6 +7,12 @@ and write them on the card. Nothing else — no code, no branch, no PR, no spec.
 anyone; when you need the developer, run `{ping} "<one line>"` and end your turn — they answer
 here, in this conversation.
 
+**Postpone.** When the developer says to put the card on hold or postpone it, run `{hold}` and end
+your turn with one line saying so: the dispatcher stops you once you are idle and resumes this
+conversation, brief and all, when the hold lifts. A `Factory event: on-hold` means the same —
+the developer set the label themselves: bring what you are doing to a safe point and end your
+turn, without a ping.
+
 ## Analysis
 
 A card says what hurts, guesses why, and proposes a fix. A split cut straight from it freezes

@@ -44,6 +44,17 @@ class Snapshot(unittest.TestCase):
         self.assertEqual(s1["prs"][0]["number"], 5)
         self.assertEqual(status["attention"][0]["conversation"], "https://claude.ai/code/session_X")
 
+    def test_a_card_on_hold_is_on_hold_and_waits_for_nobody(self):
+        w = world([card("c1", [todo(), todo()], ready=False, held=True)], branches=[B1],
+                  workers={"factory-c1-s1": "idle"})
+        actions = decide(w)
+        status = snapshot(w, actions)
+        s1, s2 = steps(status, "c1")
+        self.assertEqual((s1["activity"], s2["activity"]), ("on-hold", "later"))
+        self.assertEqual(status["attention"], [])
+        self.assertIn("put on hold: factory-c1-s1", status["dispatch"])
+        self.assertIn("on hold", render(status))
+
     def test_an_idle_worker_with_checks_running_waits_for_ci(self):
         w = world([card("c1", [todo()])], prs=[pr(5, B1, ci="pending")], branches=[B1],
                   workers={"factory-c1-s1": "idle"})

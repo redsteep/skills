@@ -23,6 +23,7 @@ ACTIVITY = {
     "starting": ("starting", "accent", "▷"),
     "queued": ("queued", "muted", "…"),
     "later": ("later", "muted", "·"),
+    "on-hold": ("on hold", "muted", "‖"),
     "done": ("done", "good", "✓"),
     "dropped": ("dropped", "muted", "✕"),
 }
