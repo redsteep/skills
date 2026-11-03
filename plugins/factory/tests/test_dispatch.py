@@ -547,7 +547,7 @@ class Adoption(unittest.TestCase):
     def test_done_adopted_step_cleans_up_its_own_branch(self):
         w = world([card("a", [done("#11 add the export")])], prs=[labelled(11, "feat/x", "MERGED")],
                   branches=["feat/x"], workers={"factory-a-s1": "idle"})
-        self.assertIn(Cleanup("factory-a-s1", "feat/x", "feature/factory-a-s1-fix"), decide(w))
+        self.assertIn(Cleanup("factory-a-s1", "feat/x", "feature/factory-card-a-s1-a-fix"), decide(w))
 
 
 class CarvedAdoptedPR(unittest.TestCase):

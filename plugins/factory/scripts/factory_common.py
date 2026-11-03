@@ -9,6 +9,7 @@ import json
 import os
 import re
 import subprocess
+from collections.abc import Iterable
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -24,8 +25,37 @@ BRANCH_PREFIX = "feature/factory-"
 
 # --- names -------------------------------------------------------------------------------
 def step_name(card_short: str, n: int) -> str:
-    """Worker session, worktree dir and branch suffix of step n (1-based) of a card."""
+    """Worker session of step n (1-based) of a card: the dispatcher's routing key.
+
+    Never carries the card's name. Every event, slot and cleanup finds its worker by this
+    string, so it stays derivable from `(card, step)` alone -- what a human reads is the
+    branch (`step_branch`) and the worktree named after it.
+    """
     return f"{WORKER_PREFIX}{card_short}-s{n}"
+
+
+_TRANSLIT = str.maketrans({
+    "\u0430": "a", "\u0431": "b", "\u0432": "v", "\u0433": "g", "\u0434": "d", "\u0435": "e",
+    "\u0451": "e", "\u0436": "zh", "\u0437": "z", "\u0438": "i", "\u0439": "i", "\u043a": "k",
+    "\u043b": "l", "\u043c": "m", "\u043d": "n", "\u043e": "o", "\u043f": "p", "\u0440": "r",
+    "\u0441": "s", "\u0442": "t", "\u0443": "u", "\u0444": "f", "\u0445": "h", "\u0446": "c",
+    "\u0447": "ch", "\u0448": "sh", "\u0449": "sch", "\u044a": "", "\u044b": "y", "\u044c": "",
+    "\u044d": "e", "\u044e": "yu", "\u044f": "ya",
+})
+
+
+def slugify(text: str, limit: int = 28) -> str:
+    """A card's name as the readable head of a branch: latin, lowercase, dash-separated.
+
+    Cyrillic is transliterated rather than dropped -- half this board's cards are in Russian, and
+    a branch named after none of their words is the problem this solves. The cut is on a word
+    boundary, so the tail reads as words and not as a word broken in half.
+    """
+    slug = re.sub(r"[^a-z0-9]+", "-", text.lower().translate(_TRANSLIT)).strip("-")
+    if len(slug) <= limit:
+        return slug
+    head = slug[:limit].rsplit("-", 1)[0]
+    return head or slug[:limit].strip("-")
 
 
 def issue_short(number: int) -> str:
@@ -38,8 +68,43 @@ def split_name(card_short: str) -> str:
     return f"{WORKER_PREFIX}{card_short}-split"
 
 
-def step_branch(card_short: str, n: int) -> str:
-    return f"feature/{step_name(card_short, n)}"
+def step_branch(card_short: str, n: int, slug: str = "") -> str:
+    """The step's branch. Readable part first, the card's short id in the tail.
+
+    The tail is not decoration: a card gets renamed (and an issue's title edited), so a branch
+    named only after the card stops being findable the moment that happens. `branch_matches`
+    looks for `-s<n>-<short>`, which no rename touches. Without a slug the name is the one the
+    factory has always used, so a branch cut before this version keeps resolving.
+    """
+    if not slug:
+        return f"feature/{step_name(card_short, n)}"
+    return f"feature/{WORKER_PREFIX}{slug}-s{n}-{card_short}"
+
+
+def branch_matches(branch: str, card_short: str, n: int) -> bool:
+    """Is this branch step n of that card, under either naming?"""
+    if not branch.startswith(BRANCH_PREFIX):
+        return False
+    return branch == step_branch(card_short, n) or branch.endswith(f"-s{n}-{card_short}")
+
+
+def resolve_branch(known: Iterable[str], card_short: str, n: int, slug: str) -> str:
+    """The step's branch: whichever already exists in the world, else the name to cut.
+
+    Asked of the world rather than computed, because the slug follows the card's current name:
+    a step whose branch was cut under the old name keeps it, and work is never orphaned by an
+    edit to a card's title.
+    """
+    for branch in sorted(known):
+        if branch_matches(branch, card_short, n):
+            return branch
+    # Nothing but a fix branch left? Its root is the step's branch under the name it was cut with,
+    # which is what the fix prefix has to keep matching.
+    for branch in sorted(known):
+        root = branch.split("-fix", 1)[0]
+        if branch != root and branch_matches(root, card_short, n):
+            return root
+    return step_branch(card_short, n, slug)
 
 
 _WORKER_RE = re.compile(r"^factory-(?P<card>[A-Za-z0-9]+)-(?:s(?P<n>\d+)|(?P<split>split))$")

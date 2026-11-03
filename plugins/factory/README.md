@@ -89,6 +89,16 @@ were already delivered, two locks, the cards' briefs, and the step of a card cut
 nothing. Everything else is re-derived each dispatch from the PRs, the card's `Factory steps`
 checklist and the `feature/factory-*` branches — a reboot loses nothing.
 
+**Branch names read as the card, not as its id.** A step's branch is
+`feature/factory-<card name>-s<n>-<card short id>` — the readable part first, the short id in the
+tail — and its worktree is named after the branch, so `.worktrees/` reads as the work. Only the
+tail is load-bearing: a card gets renamed and an issue's title edited, so the dispatcher finds a
+step's branch by `-s<n>-<short>`, which no rename touches, and keeps whatever branch already
+exists over the name it would cut today. A Russian card name is transliterated, not dropped. A
+branch cut before this version (`feature/factory-<short>-s<n>`) keeps resolving — both shapes are
+the step's own. The **worker's session name** stays `factory-<short>-s<n>`: it is the routing key
+every event, slot and cleanup resolves by, so it carries no name that can change.
+
 **Slots belong to live workers.** A WIP slot is held by a step's live worker from its start until
 the dispatcher stops it after the handoff — not by the step's state. So the slot a merged step
 frees goes to the next step of the same card or issue, which has started first, rather than to

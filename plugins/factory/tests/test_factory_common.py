@@ -11,7 +11,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from datetime import datetime, timedelta, timezone  # noqa: E402
 
-from factory_common import WORKER_GRACE, load_repo_secrets, worker_view  # noqa: E402
+from factory_common import (  # noqa: E402
+    WORKER_GRACE, branch_matches, load_repo_secrets, resolve_branch, slugify, step_branch,
+    worker_view,
+)
 
 ENV = """# comment
 export TRELLO_API_KEY="key-from-dotenv"
@@ -96,6 +99,52 @@ class WorkerView(unittest.TestCase):
         workers, _ = worker_view([agent("my-session", pid=1, status="idle"),
                                   {**agent("factory-a-s1", pid=2, status="idle"), "kind": "interactive"}], {}, NOW)
         self.assertEqual(workers, {})
+
+
+class BranchNames(unittest.TestCase):
+    """What a human reads comes first; what the dispatcher needs stays in the tail."""
+
+    def test_a_russian_card_name_becomes_latin_words(self):
+        self.assertEqual(slugify("Payswix: \u043f\u043e\u0434\u0434\u0435\u0440\u0436\u043a\u0430"),
+                         "payswix-podderzhka")
+
+    def test_a_long_name_is_cut_on_a_word_and_not_mid_word(self):
+        self.assertEqual(slugify("Provider settlement fee is not counted at all"),
+                         "provider-settlement-fee-is")
+
+    def test_a_name_with_nothing_latin_or_cyrillic_in_it_slugs_to_nothing(self):
+        self.assertEqual(slugify("### !!! ###"), "")
+
+    def test_without_a_slug_the_branch_is_the_name_the_factory_always_used(self):
+        self.assertEqual(step_branch("4oJCA5h7", 2), "feature/factory-4oJCA5h7-s2")
+
+    def test_with_a_slug_the_readable_part_leads_and_the_card_id_trails(self):
+        self.assertEqual(step_branch("4oJCA5h7", 2, "payswix"), "feature/factory-payswix-s2-4oJCA5h7")
+
+    def test_a_step_owns_both_shapes_of_its_own_branch(self):
+        self.assertTrue(branch_matches("feature/factory-4oJCA5h7-s2", "4oJCA5h7", 2))
+        self.assertTrue(branch_matches("feature/factory-payswix-s2-4oJCA5h7", "4oJCA5h7", 2))
+
+    def test_a_branch_of_another_step_card_or_prefix_is_not_the_step_s(self):
+        self.assertFalse(branch_matches("feature/factory-payswix-s3-4oJCA5h7", "4oJCA5h7", 2))
+        self.assertFalse(branch_matches("feature/factory-payswix-s2-Zzzzzzzz", "4oJCA5h7", 2))
+        self.assertFalse(branch_matches("wip/payswix-s2-4oJCA5h7", "4oJCA5h7", 2))
+
+    def test_the_branch_that_already_exists_wins_over_the_name_to_cut(self):
+        self.assertEqual(resolve_branch(["feature/factory-4oJCA5h7-s2"], "4oJCA5h7", 2, "payswix"),
+                         "feature/factory-4oJCA5h7-s2")
+
+    def test_a_renamed_card_keeps_the_branch_cut_under_its_old_name(self):
+        self.assertEqual(resolve_branch(["feature/factory-oldname-s2-4oJCA5h7"], "4oJCA5h7", 2, "newname"),
+                         "feature/factory-oldname-s2-4oJCA5h7")
+
+    def test_a_step_known_only_by_a_fix_branch_resolves_to_that_branch_s_root(self):
+        self.assertEqual(resolve_branch(["feature/factory-payswix-s2-4oJCA5h7-fix1"], "4oJCA5h7", 2, "other"),
+                         "feature/factory-payswix-s2-4oJCA5h7")
+
+    def test_a_step_with_nothing_in_the_world_gets_the_new_name(self):
+        self.assertEqual(resolve_branch([], "4oJCA5h7", 2, "payswix"),
+                         "feature/factory-payswix-s2-4oJCA5h7")
 
 
 if __name__ == "__main__":
