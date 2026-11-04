@@ -574,9 +574,12 @@ def decide(world: World) -> list:
 
 
 def slots_held(world: World, all_steps: dict, issues: bool) -> int:
-    """Slots of a pool (cards, or issues) held: started steps whose worker is alive (rule 4)."""
+    """Slots of a pool (cards, or issues) held: started steps whose worker is alive (rule 4). A
+    done step's worker that reads `restarting` holds none: ticking the step is its last act, so
+    gone means finished, and a done step never gets a worker the grace would have to twin-guard."""
     return sum(1 for c in world.cards if (c.issue is not None) == issues
-               for s in all_steps.get(c.short, []) if s.state != PENDING and _alive(world, s.worker))
+               for s in all_steps.get(c.short, []) if s.state != PENDING and _alive(world, s.worker)
+               and not (s.state == DONE and world.workers[s.worker].get("status") == "restarting"))
 
 
 def _review_idle(step: Step, prs: list, world: World) -> list:

@@ -165,6 +165,12 @@ class SlotsHeldByLiveWorkers(unittest.TestCase):
                   workers={"factory-a-s1": "restarting"}, wip=1)
         self.assertEqual(started(decide(w)), [])
 
+    def test_a_done_steps_vanished_worker_frees_its_slot(self):
+        # ticking is its last act: gone now means finished, not restarting -- no twin to prevent
+        w = world([card("a", [done()]), card("b", [todo()])], branches=["feature/factory-a-s1"],
+                  workers={"factory-a-s1": "restarting"}, wip=1)
+        self.assertEqual(started(decide(w)), [("b", 1, None)])
+
     def test_a_fixing_step_without_a_worker_waits_for_a_slot(self):
         prs = [pr(1, "feature/factory-a-s1", "MERGED"), pr(2, "feature/factory-a-s1-fix1")]
         w = world([card("a", [todo()]), card("b", [todo()])], prs=prs, branches=["feature/factory-b-s1"],
