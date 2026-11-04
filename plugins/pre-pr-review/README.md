@@ -31,7 +31,7 @@ docs-only changes, trivial fixes and dependency bumps — named in the PR body.
 
 The skill is generic; each repository supplies its specifics in a checked-in
 `.claude/pre-pr-review.md`: which paths are production code, the targeted test
-command and its traps, where specs and rules live, how to bring the
+command and its traps, how its coverage is produced, where specs and rules live, how to bring the
 app up for E2E, project-shaped hints for the reviewers, final checks, PR
 conventions. Start from [`profile-template.md`](skills/pre-pr-review/profile-template.md).
 
@@ -45,6 +45,17 @@ slow check against production data at `before-pr`, with `Unattended: draft`.
 
 Without a profile, the skill infers what it can from the repo, says what it
 guessed, and offers to write the profile.
+
+### What the PR body says about the tests
+
+The reviewer starts in the body, so step 7 puts three tables there before anything else: what
+changed → which test holds it; the changed lines no test ran; and step 4's mutation table with
+its summary. Counts do not survive that reading — "killed 9 / survived 1" says a measurement
+happened, not what was measured. The second table is produced by
+[`scripts/diff_coverage.py`](scripts/diff_coverage.py), which crosses the diff with the report the
+profile's **Coverage** command writes (coverage.py JSON or istanbul `coverage-final.json`), lists
+uncovered changed lines as ranges, and names what it could not measure instead of passing over it
+in silence.
 
 ## Install
 

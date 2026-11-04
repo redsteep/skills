@@ -189,7 +189,51 @@ All gates above passed with evidence → commit the step 4–6 changes (logical 
 cd <worktree> && REVIEWED=1 gh pr create --title "..." --body "..."
 ```
 
-`git add` explicit paths, never `-A` — nothing stray (local env files, scratch output) rides into the PR. Put a short review summary in the PR body: the ticket or issue, steps skipped and why (e.g. "no UI → step 1 skipped"), mutation counts (killed / covered / equivalent / deferred), each extension's verdict — plus anything **Profile → PR** and the `pr-body` entries ask for.
+`git add` explicit paths, never `-A` — nothing stray (local env files, scratch output) rides into the PR. Put a short review summary in the PR body: the ticket or issue, steps skipped and why (e.g. "no UI → step 1 skipped"), the three tables below, each extension's verdict — plus anything **Profile → PR** and the `pr-body` entries ask for.
+
+### What the body says about the tests, before the reviewer opens the diff
+
+The reviewer starts in the PR body. Counts do not survive that reading: "killed 9 / survived 1"
+says a measurement happened, not *what* was measured — a branch where nine safe mutants died
+while the one line that moves money was never touched scores the same as one where it was. Three
+tables say it instead, and all three are a **rendering of work the review already did**, not a
+fresh pass over the diff.
+
+**1. What changed → which test holds it.** One row per changed behaviour, from step 3's
+behaviour map:
+
+| The row | What it must say |
+|---|---|
+| one per behaviour | a unit a reader can name — a function, an endpoint, a screen, a column — never one per file or per commit |
+| the test, by name | `test_single_row_has_a_plain_label`, not "covered"; a parameterised test names its parameters |
+| what it asserts | values, formats, the order of rows — the thing that would break. "Works" is not an assertion |
+| an older test that already held it | say so and name it: that row claims nothing new was needed, and it is the row worth checking |
+| a row with no test | allowed, and the most useful row in the table — it must say **why** |
+
+**2. Changed lines no test ran.** `scripts/diff_coverage.py` in this plugin crosses the diff with
+the coverage report the project's **Profile → Coverage** command produces, and prints the section
+as it goes into the body:
+
+```bash
+<the profile's coverage command>
+python3 <plugin>/scripts/diff_coverage.py --coverage <report> --base <base> \
+    --root <dir the run started in> --suite "<what produced it, in words>"
+```
+
+It reads coverage.py's JSON and istanbul's `coverage-final.json`, lists uncovered changed lines as
+ranges, and names what it could not measure rather than passing over it in silence. `--suite` is
+required: a number from a targeted run means something different from the same number from the
+whole suite, so the claim carries its provenance. **No Profile → Coverage section → say so in the
+body** ("coverage not measured here") rather than leaving the reader to assume it was.
+
+**3. The mutation table** — step 4's own output, carried over verbatim
+(`# | File:line | Mutation | Outcome | Killed by / new test`), with its Summary under it, because
+that is where the changed lines nobody mutated are accounted for: unreached → gap covered, pinned
+(no mutant needed), equivalent, deferred. A deferral is a finding the owner may overrule, so it
+belongs in the body and not in an agent's report nobody opens.
+
+A changed line that appears in none of the three is the thing these tables exist to make visible:
+the review cannot claim it was measured.
 
 ### The PR exists as a spec-only draft → finish it
 

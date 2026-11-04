@@ -35,6 +35,20 @@ Traps:
 - <tests skipped unless a switch is set — the switch, and when the diff makes it necessary>
 - <commands that never return (watch mode) and their one-shot form>
 
+## Coverage
+
+How this project measures coverage, and from where. Step 7 runs it and crosses the report with the
+diff (`scripts/diff_coverage.py`); leave the section out and the PR body says coverage was not
+measured, which is the honest alternative to a silent zero.
+
+- **Command:** `<e.g. cd <worktree>/api && poetry run pytest tests --cov=app --cov-report=json:../.tmp/coverage.json>`
+- **Report:** `<path the command writes, relative to the worktree — e.g. .tmp/coverage.json>`
+- **Root:** `<the directory the run started in, so report paths line up with the diff — e.g. api>`
+- **Suite:** `<what that run is, in words — "the api suite, ~1 800 tests"; it goes in the body>`
+
+Traps:
+- <a run that fails under coverage, a plugin that conflicts with it, a package with no coverage tool at all>
+
 ## Extensions
 
 <!-- Points: after-setup · before-pr · pr-body · after-pr (see SKILL.md § Extension points).
