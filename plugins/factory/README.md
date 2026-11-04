@@ -227,7 +227,7 @@ in the Slack DM, or **Open** on the status page, which opens it in the Claude de
 - **A worker with no process** (listed by `claude agents` but not running) counts as dead: its
   step gets a fresh worker, or its session is removed when the step is done. One seen alive in the
   last 10 minutes counts as restarting instead — never replaced, so a restart gets no twin. A
-  done step's worker gone from the list has finished, not restarted: its slot frees at once.
+  worker the dispatcher removed itself (cleanup, shelving) is gone at once: no grace holds its slot.
 - **Postpone a card:** add the `on hold` label (profile `Trello` → `Hold label`), or tell its
   worker "put it on hold" — it runs `factory-hold`. See *Postponing a card* below.
 - **Stop a card:** remove its `ready` label; idle workers of that card are cleaned up — their

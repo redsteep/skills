@@ -1,6 +1,7 @@
 """The dispatcher's decision table: every rule and boundary of the spec's Tests section.
 Run: python3 -m unittest discover -s plugins/factory/tests"""
 
+import json
 import subprocess
 import sys
 import tempfile
@@ -164,12 +165,6 @@ class SlotsHeldByLiveWorkers(unittest.TestCase):
         w = world([card("a", [todo()]), card("b", [todo()])], branches=["feature/factory-a-s1"],
                   workers={"factory-a-s1": "restarting"}, wip=1)
         self.assertEqual(started(decide(w)), [])
-
-    def test_a_done_steps_vanished_worker_frees_its_slot(self):
-        # ticking is its last act: gone now means finished, not restarting -- no twin to prevent
-        w = world([card("a", [done()]), card("b", [todo()])], branches=["feature/factory-a-s1"],
-                  workers={"factory-a-s1": "restarting"}, wip=1)
-        self.assertEqual(started(decide(w)), [("b", 1, None)])
 
     def test_a_fixing_step_without_a_worker_waits_for_a_slot(self):
         prs = [pr(1, "feature/factory-a-s1", "MERGED"), pr(2, "feature/factory-a-s1-fix1")]
@@ -505,6 +500,12 @@ class CiRounds(unittest.TestCase):
         first = self.events([SMOKE_FAILED])[0].key
         rerun = {**SMOKE_FAILED, "completedAt": "2026-10-28T16:00:00Z"}
         self.assertEqual(len(self.events([rerun], sent=[first])), 1)
+
+    def test_a_cancelled_duplicate_of_a_passed_check_is_no_failure(self):
+        # a second run of the same checks, cancelled by a newer push, judged nothing
+        cancelled = {**SMOKE_FAILED, "conclusion": "CANCELLED", "completedAt": "2026-10-28T16:00:00Z"}
+        self.assertEqual([e.text for e in self.events([SMOKE_PASSED, cancelled])],
+                         ["Factory event: ci-passed PR #7"])
 
     def test_green_again_after_a_rerun_is_sent(self):
         early = {**SMOKE_PASSED, "completedAt": "2026-10-28T13:00:00Z"}
@@ -928,6 +929,31 @@ class Shelf(unittest.TestCase):
         self.assertIn(["gh", "pr", "ready", "5"], calls)
         self.assertFalse(any("rm" in c for c in calls))
         self.assertIsNone(self.fd.shelved_entry("factory-a-s1"))
+
+
+class CleanupForgets(unittest.TestCase):
+    """A worker the dispatcher removed is gone, not restarting: kept as last seen, it read
+    `restarting` for the whole grace -- its slot held and events still sent to it."""
+
+    def setUp(self):
+        import factory_common
+        self.fc = factory_common
+        self.tmp = Path(tempfile.mkdtemp())
+        self.saved = factory_common.SEEN_FILE
+        factory_common.SEEN_FILE = self.tmp / "workers-seen.json"
+
+    def tearDown(self):
+        self.fc.SEEN_FILE = self.saved
+        subprocess.run(["rm", "-rf", str(self.tmp)], check=True)
+
+    def test_a_cleaned_up_worker_is_no_longer_seen(self):
+        from unittest import mock
+        import factory_dispatch
+        self.fc.mark_launched("factory-a-s1")
+        self.fc.mark_launched("factory-b-s1")
+        with mock.patch.object(factory_dispatch, "list_agents", return_value=[]):
+            Executor(Path("/repo"), Profile(""))._Cleanup(Cleanup("factory-a-s1", None, None))
+        self.assertEqual(list(json.loads(self.fc.SEEN_FILE.read_text())), ["factory-b-s1"])
 
 
 class ResumableSession(unittest.TestCase):

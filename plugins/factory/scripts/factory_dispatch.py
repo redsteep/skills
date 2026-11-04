@@ -574,12 +574,9 @@ def decide(world: World) -> list:
 
 
 def slots_held(world: World, all_steps: dict, issues: bool) -> int:
-    """Slots of a pool (cards, or issues) held: started steps whose worker is alive (rule 4). A
-    done step's worker that reads `restarting` holds none: ticking the step is its last act, so
-    gone means finished, and a done step never gets a worker the grace would have to twin-guard."""
+    """Slots of a pool (cards, or issues) held: started steps whose worker is alive (rule 4)."""
     return sum(1 for c in world.cards if (c.issue is not None) == issues
-               for s in all_steps.get(c.short, []) if s.state != PENDING and _alive(world, s.worker)
-               and not (s.state == DONE and world.workers[s.worker].get("status") == "restarting"))
+               for s in all_steps.get(c.short, []) if s.state != PENDING and _alive(world, s.worker))
 
 
 def _review_idle(step: Step, prs: list, world: World) -> list:
@@ -707,7 +704,13 @@ def _ci(rollup: list[dict]) -> tuple[str | None, tuple[str, ...], str]:
         return r.get("name") or r.get("context") or "?"
     def at(r: dict) -> str:
         return r.get("completedAt") or r.get("createdAt") or r.get("startedAt") or ""
-    failed = sorted((r for r in rollup if (r.get("conclusion") or r.get("state")) in _FAILED), key=name)
+    def outcome(r: dict) -> str:
+        return r.get("conclusion") or r.get("state") or ""
+    # A cancelled run judged nothing: beside a run of the same check that passed -- a second run of
+    # the checks, cancelled by a newer push -- it is no failure, nor a check still to wait for.
+    passed = {name(r) for r in rollup if outcome(r) == "SUCCESS"}
+    rollup = [r for r in rollup if not (outcome(r) == "CANCELLED" and name(r) in passed)]
+    failed = sorted((r for r in rollup if outcome(r) in _FAILED), key=name)
     if failed:
         return "failed", tuple(name(r) for r in failed), ",".join(f"{name(r)}@{at(r)}" for r in failed)
     if any(r.get("status") not in (None, "COMPLETED") or r.get("state") == "PENDING" for r in rollup):
@@ -937,6 +940,7 @@ class Executor:
                 if agent["name"] == a.worker:
                     run(["claude", "stop", agent["id"]], check=False)
                     run(["claude", "rm", agent["id"]], check=False)
+            forget_seen(a.worker)  # removed, not restarting: no grace holding its slot or its events
         if a.branch:
             found = checked_out_at(run(["git", "worktree", "list", "--porcelain"], cwd=self.repo), a.branch)
             if found is not None and found.resolve() == self.repo.resolve():
