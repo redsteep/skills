@@ -57,13 +57,21 @@ def statuses(workers):
 
 
 class WorkerView(unittest.TestCase):
-    """What the dispatcher counts as a worker: alive with a process; `restarting` while one seen
-    alive within the grace is missing or has no process; `dead` when listed without a process
-    beyond it."""
+    """What the dispatcher counts as a worker: alive with a process; `restarting` from the first
+    dispatch that finds one seen alive missing or without a process, for the grace; `dead` when
+    listed without a process beyond it. The grace runs from that first miss, not from the last
+    sighting: a dispatch that sets up a worktree can keep the next one away for many minutes."""
 
-    def test_a_session_with_a_process_keeps_its_status_and_is_seen_now(self):
+    def test_a_session_with_a_process_keeps_its_status_and_is_recorded_alive(self):
         workers, seen = worker_view([agent("factory-a-s1", pid=1, status="idle")], {}, NOW)
-        self.assertEqual((statuses(workers), seen), ({"factory-a-s1": "idle"}, {"factory-a-s1": NOW}))
+        self.assertEqual((statuses(workers), seen), ({"factory-a-s1": "idle"}, {"factory-a-s1": None}))
+
+    def test_a_worker_alive_last_time_and_missing_now_is_restarting_from_now(self):
+        # however long ago that last dispatch was
+        for listed in ([], [agent("factory-a-s1")]):
+            with self.subTest(listed=bool(listed)):
+                workers, seen = worker_view(listed, {"factory-a-s1": None}, NOW)
+                self.assertEqual((statuses(workers), seen), ({"factory-a-s1": "restarting"}, {"factory-a-s1": NOW}))
 
     def test_a_busy_session_whose_turn_ended_reads_idle(self):
         for state in ("done", "blocked"):
@@ -79,12 +87,17 @@ class WorkerView(unittest.TestCase):
         workers, _ = worker_view([agent("factory-a-s1")], {}, NOW)
         self.assertEqual(statuses(workers), {"factory-a-s1": "dead"})
 
-    def test_missing_or_without_a_process_within_the_grace_is_restarting(self):
+    def test_missing_or_without_a_process_for_the_whole_grace_is_still_restarting(self):
         for listed in ([], [agent("factory-a-s1")]):
             with self.subTest(listed=bool(listed)):
-                seen_at = NOW - WORKER_GRACE
-                workers, seen = worker_view(listed, {"factory-a-s1": seen_at}, NOW)
-                self.assertEqual((statuses(workers), seen), ({"factory-a-s1": "restarting"}, {"factory-a-s1": seen_at}))
+                since = NOW - WORKER_GRACE
+                workers, seen = worker_view(listed, {"factory-a-s1": since}, NOW)
+                self.assertEqual((statuses(workers), seen), ({"factory-a-s1": "restarting"}, {"factory-a-s1": since}))
+
+    def test_back_within_the_grace_is_alive_again(self):
+        workers, seen = worker_view([agent("factory-a-s1", pid=1, status="busy")],
+                                    {"factory-a-s1": NOW - WORKER_GRACE}, NOW)
+        self.assertEqual((statuses(workers), seen), ({"factory-a-s1": "busy"}, {"factory-a-s1": None}))
 
     def test_just_past_the_grace_a_missing_one_is_gone_and_one_without_a_process_is_dead(self):
         past = {"factory-a-s1": NOW - WORKER_GRACE - timedelta(seconds=1)}

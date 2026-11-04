@@ -931,6 +931,29 @@ class Shelf(unittest.TestCase):
         self.assertIsNone(self.fd.shelved_entry("factory-a-s1"))
 
 
+class StartStepWorktree(unittest.TestCase):
+    """A new step's worktree is created under the name the launch then looks for: its branch's.
+    Created under the worker's name instead, the launch found no directory, pinged "can't
+    start", and the next dispatch adopted the stray branch the create had left."""
+
+    def test_a_new_branch_is_created_under_its_own_name(self):
+        from unittest import mock
+        import factory_dispatch
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(subprocess.run, ["rm", "-rf", str(tmp)], check=True)
+        c = Card(id="417", short="i417", name="Make Lead.target_company required", url="u", ready=True,
+                 items=(todo(),), issue=417)
+        step = factory_dispatch.Step(c, 5, todo(), PENDING, resolved="feature/factory-make-lead-s5-i417")
+        calls, launched = [], []
+        executor = Executor(tmp, Profile("## Worktree\n- **Create:** `create.sh`\n"))
+        with mock.patch.object(factory_dispatch, "run", side_effect=lambda cmd, **kw: calls.append(cmd) or ""), \
+                mock.patch.object(factory_dispatch, "load_branches", return_value=[]), \
+                mock.patch.object(Executor, "_launch", lambda self, name, worktree, *a, **kw: launched.append(worktree)):
+            executor._StartStep(StartStep(step))
+        self.assertIn(["create.sh", "--base", "origin/main", "factory-make-lead-s5-i417"], calls)
+        self.assertEqual(launched, [tmp / ".worktrees/factory-make-lead-s5-i417"])
+
+
 class CleanupForgets(unittest.TestCase):
     """A worker the dispatcher removed is gone, not restarting: kept as last seen, it read
     `restarting` for the whole grace -- its slot held and events still sent to it."""

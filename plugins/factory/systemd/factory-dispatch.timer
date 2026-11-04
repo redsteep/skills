@@ -1,9 +1,11 @@
 [Unit]
-Description=Run the factory dispatcher every 2 minutes
+Description=Run the factory dispatcher a minute after the last run ends
 
 [Timer]
 OnBootSec=2min
-OnUnitInactiveSec=2min
+OnUnitInactiveSec=1min
+# systemd may otherwise fire up to a minute late to batch wake-ups: runs came ~3 min apart on 2min.
+AccuracySec=5s
 Unit=factory-dispatch.service
 
 [Install]

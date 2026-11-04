@@ -72,7 +72,7 @@ In the Claude app a worker shows by what it works on — `factory · <card> · 1
 ## How it runs
 
 ```
-systemd timer (2 min) → factory-dispatch (a script, no LLM): read GitHub, Trello, git, live workers
+systemd timer (1 min after the last run) → factory-dispatch (a script, no LLM): read GitHub, Trello, git, live workers
                          → start split / step / replacement workers   (claude --bg --remote-control)
                          → send status events to live workers         (cross-session messaging)
                          → clean up finished steps                    (the only cleanup owner)
@@ -225,9 +225,10 @@ in the Slack DM, or **Open** on the status page, which opens it in the Claude de
   unfinished step whose PR is not waiting on CI and that hears no event this dispatch.
 - **Workers:** `claude agents` lists them; `claude attach <id>` opens one in a terminal.
 - **A worker with no process** (listed by `claude agents` but not running) counts as dead: its
-  step gets a fresh worker, or its session is removed when the step is done. One seen alive in the
-  last 10 minutes counts as restarting instead — never replaced, so a restart gets no twin. A
-  worker the dispatcher removed itself (cleanup, shelving) is gone at once: no grace holds its slot.
+  step gets a fresh worker, or its session is removed when the step is done. One alive at the last
+  dispatch counts as restarting instead for 2 minutes from the first dispatch that misses it —
+  never replaced, so a restart gets no twin. A worker the dispatcher removed itself (cleanup,
+  shelving) is gone at once: no grace holds its slot.
 - **Postpone a card:** add the `on hold` label (profile `Trello` → `Hold label`), or tell its
   worker "put it on hold" — it runs `factory-hold`. See *Postponing a card* below.
 - **Stop a card:** remove its `ready` label; idle workers of that card are cleaned up — their

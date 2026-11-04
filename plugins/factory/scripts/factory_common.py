@@ -230,9 +230,12 @@ def run(cmd: list[str], cwd: Path | None = None, check: bool = True, timeout: in
     return proc.stdout
 
 
-# A restarting session drops out of `claude agents`, or loses its process, for a moment. Within
-# this long of last being seen alive it still counts as live, so a restart never gets a twin.
-WORKER_GRACE = timedelta(minutes=10)
+# A restarting session drops out of `claude agents`, or loses its process, for a moment -- the one
+# measured (a Claude Code upgrade, 2026-10-27) for under 21 s. For this long from the first
+# dispatch that finds it so, it still counts as live, so a restart never gets a twin. Counted from
+# that first miss, not from the last sighting: a dispatch that sets up a worktree can keep the next
+# one away for many minutes, and a restart then would read as a death.
+WORKER_GRACE = timedelta(minutes=2)
 
 
 def is_worker(agent: dict) -> bool:
@@ -245,11 +248,12 @@ def list_agents() -> list[dict]:
     return [a for a in json.loads(run(["claude", "agents", "--json"]) or "[]") if is_worker(a)]
 
 
-def worker_view(agents: list[dict], seen: dict[str, datetime], now: datetime
-                ) -> tuple[dict[str, dict], dict[str, datetime]]:
-    """Workers by name, and when each was last seen alive. A session with a process keeps its
-    status (`idle` once its turn has ended); one seen alive within WORKER_GRACE but missing or without a process now reads
-    `restarting`; one listed without a process beyond that reads `dead`."""
+def worker_view(agents: list[dict], seen: dict[str, datetime | None], now: datetime
+                ) -> tuple[dict[str, dict], dict[str, datetime | None]]:
+    """Workers by name, and the record for the next dispatch: None for a worker alive now, else
+    when it was first found missing. A session with a process keeps its status (`idle` once its
+    turn has ended); one alive before but missing or without a process now reads `restarting`
+    for WORKER_GRACE from that first miss; one listed without a process beyond that, `dead`."""
     listed: dict[str, dict] = {}
     for a in filter(is_worker, agents):
         if a["name"] not in listed or a.get("pid"):
@@ -262,24 +266,25 @@ def worker_view(agents: list[dict], seen: dict[str, datetime], now: datetime
             # developer (`blocked`) is what `idle` used to mean.
             if a.get("state") in ("done", "blocked"):
                 a = {**a, "status": "idle"}
-            workers[name], fresh[name] = a, now
-    for name, at in seen.items():
-        if name not in workers and at >= now - WORKER_GRACE:
-            workers[name], fresh[name] = {**listed.get(name, {}), "status": "restarting"}, at
+            workers[name], fresh[name] = a, None
+    for name, missing_since in seen.items():
+        since = missing_since or now
+        if name not in workers and since >= now - WORKER_GRACE:
+            workers[name], fresh[name] = {**listed.get(name, {}), "status": "restarting"}, since
     for name, a in listed.items():
         workers.setdefault(name, {**a, "status": "dead"})
     return workers, fresh
 
 
-def _read_seen() -> dict[str, datetime]:
-    return ({k: datetime.fromisoformat(v) for k, v in json.loads(SEEN_FILE.read_text()).items()}
+def _read_seen() -> dict[str, datetime | None]:
+    return ({k: v and datetime.fromisoformat(v) for k, v in json.loads(SEEN_FILE.read_text()).items()}
             if SEEN_FILE.exists() else {})
 
 
-def _write_seen(seen: dict[str, datetime]) -> None:
+def _write_seen(seen: dict[str, datetime | None]) -> None:
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     tmp = SEEN_FILE.with_suffix(".tmp")
-    tmp.write_text(json.dumps({k: v.isoformat() for k, v in seen.items()}, indent=0))
+    tmp.write_text(json.dumps({k: v and v.isoformat() for k, v in seen.items()}, indent=0))
     tmp.replace(SEEN_FILE)
 
 
@@ -296,14 +301,15 @@ def forget_seen(name: str) -> None:
     """A worker stopped on purpose (shelved) is not restarting: it must not keep its slot for the
     grace period a crash gets."""
     seen = _read_seen()
-    if seen.pop(name, None) is not None:
+    if name in seen:
+        del seen[name]
         _write_seen(seen)
 
 
 def mark_launched(name: str) -> None:
-    """A just-launched worker counts as seen alive, so it is not replaced before it is listed."""
+    """A just-launched worker counts as alive, so it is not replaced before it is listed."""
     seen = _read_seen()
-    seen[name] = datetime.now(timezone.utc)
+    seen[name] = None
     _write_seen(seen)
 
 # --- the developer's presence ----------------------------------------------------------------

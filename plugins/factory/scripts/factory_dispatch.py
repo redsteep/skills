@@ -676,7 +676,7 @@ def takes_issue(issue: dict, decision_label: str) -> bool:
     """Whether the factory takes this issue. The selection label says what kind of work an issue
     is, not that anyone approved it for unattended work — so a worker that finds a design decision
     in one marks it with the **Needs decision** label and ends. The next dispatch has to leave it
-    alone, or the factory offers it again every two minutes and the slot never moves on."""
+    alone, or the factory offers it again on every dispatch and the slot never moves on."""
     if not decision_label:
         return True
     return not any(l["name"] == decision_label for l in issue.get("labels") or [])
@@ -825,13 +825,14 @@ class Executor:
             run(["gh", "pr", "edit", str(s.pr_number), "--add-label", self.profile.get("GitHub", "Label", "factory")],
                 cwd=self.repo)
         else:
-            worktree = self._worktrees / s.branch.rsplit("/", 1)[-1]
+            name = s.branch.rsplit("/", 1)[-1]   # the create makes `feature/<name>` at that path
+            worktree = self._worktrees / name
             if not worktree.exists():
                 run(["git", "fetch", "origin", self._base], cwd=self.repo)
                 if s.branch in load_branches(self.repo):
                     run([create, s.branch], cwd=self.repo, timeout=1800)
                 else:
-                    run([create, "--base", f"origin/{self._base}", s.worker], cwd=self.repo, timeout=1800)
+                    run([create, "--base", f"origin/{self._base}", name], cwd=self.repo, timeout=1800)
         total = len(s.card.items or ())
         self._launch(s.worker, worktree, "recovery.md" if a.recovered else "step.md", card=s.card,
                      step=s, total=total, recovered=a.recovered or "", title=display_name(s.card, s, total))
