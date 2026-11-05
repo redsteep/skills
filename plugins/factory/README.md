@@ -179,11 +179,18 @@ in the Slack DM, or **Open** on the status page, which opens it in the Claude de
    (Remote Control does not work with an API key), `gh` authenticated, and whatever your
    worktree script needs. That script must accept `--base <ref> <name>` and check out an existing
    branch ref. The redsteep plugins `pre-pr-review`, `design-review` and `review-mode`.
-   A **handoff skill** in the project, run after each merge with `step=<n>/<total>`: it checks the
-   deploy, asks "test manually first?" by ping, links the PR on the card and checks item `<n>`; on
-   the last step it drafts the card move and requester message and posts them on a yes; it does
-   no cleanup (the dispatcher does). With `## Issues`, it also takes `issue=<n>`: the deploy check
-   alone — no ping, no card, no message, no cleanup — reporting whether the change is live.
+   A **handoff skill**, run after each merge with `step=<n>/<total>`: it checks the deploy, asks
+   "test manually first?" by ping, links the PR on the card and checks item `<n>`; on the last step
+   it drafts the card move and requester message and posts them on a yes; it does no cleanup (the
+   dispatcher does). With `## Issues`, it also takes `issue=<n>`: the deploy check alone — no ping,
+   no card, no message, no cleanup — reporting whether the change is live.
+
+   The plugin **ships one** (`skills/after-merge-handoff/`): name it in `Repo` → **Handoff skill**
+   and fill in `## Deploy` (how to ask whether a commit is serving, how to look at a failed build,
+   optionally how to re-run one) and `## Announce` (where the person who asked hears back). Leave
+   `## Announce` out and the worker drafts that message and hands it to you instead of sending it;
+   leave **Retry build** out and it never re-runs a deploy. A project whose handoff is unlike this
+   one names its own skill instead — the dispatcher only passes the name on.
 7. **Dry run** — `scripts/factory-dispatch <repo> --dry-run` prints what one dispatch would do.
    Then walk one small card through by hand before the timer: run `factory-dispatch <repo>`
    yourself after each of your actions.

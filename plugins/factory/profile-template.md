@@ -44,7 +44,35 @@ Section and key names are read by code — keep them. Values in backticks.
 - **Rules:** `CLAUDE.md` — what the workers must follow, as you'd say it in a prompt
 - **Spec template:** `<path>` — a step's spec is written from it
 - **Specs:** `<dir>` — where specs go
-- **Handoff skill:** `<skill name>` — run after each merge with `step=<n>/<total>` (README)
+- **Handoff skill:** `<skill name>` — run after each merge with `step=<n>/<total>` (README).
+  The plugin ships `after-merge-handoff`; name it here, or name your own.
+
+## Deploy
+
+What the handoff asks to learn whether a merged commit is actually serving, in this project's
+terms. Cloud CLIs are denied to workers, so each of these is a script of yours with a narrow
+surface — the denial matches the text of a command and cannot see inside one, which is why the
+surface, not the denial, is what keeps a worker out of the console.
+
+- **Pipeline:** `<one line: what deploys where, and roughly how long — "main deploys straight to
+  production; a build takes ~6 minutes">`
+- **Live check:** `<command taking a commit sha; exit 0 means that commit is serving>`
+- **Failed build:** `<command: which build failed, at which step, with the log URL>`
+- **Build log:** `<command taking a build id>`
+- **Retry build:** `<command taking a build id — leave this out and a worker never re-runs a
+  deploy; include it only if the command itself bounds what may be re-run>`
+
+## Announce
+
+How the person who asked for the work hears that it shipped — the last step's second message, and
+the only one that leaves the team. Leave the section out and a worker drafts the text and hands it
+to you instead of sending it.
+
+- **Where:** `<the channel in words, and its id — a worker needs both: one to frame the text, one
+  to send it>`
+- **How:** `<the tool or command, and whether it replies to a message or posts a new one>`
+- **Quote:** `<how a card points at the message that asked — e.g. "msg <id>" in its description —
+  so the answer lands under the question>`
 
 ## Analysis
 
