@@ -14,10 +14,11 @@ so a project picks up only the skills — and hooks — it enables.
 | Plugin | What it does |
 |---|---|
 | [design-review](plugins/design-review) | Before a spec is committed, seven placement tests against the code it lands in — is each new name on the class that owns it; again on the branch for drift |
-| [instruction-feedback](plugins/instruction-feedback) | A correction to the implementation ends with a proposed one-line amendment to the instructions, and an offer to prove it by replaying the reviewer and spec writer on the commits that made the mistake |
+| [instruction-feedback](plugins/instruction-feedback) | A correction to the implementation ends with a proposed one-line amendment to the instructions, and an offer to prove it with reviewer-eval |
 | [nightly-backlog](plugins/nightly-backlog) | Unattended night run — one allowed backlog item (GitHub issues by default, any store via the profile) to a draft PR, markings proposed for a few more |
 | [pr-when-done](plugins/pr-when-done) | A clean worktree ahead of the default branch with no PR gets one nudge per commit to review and open it |
 | [pre-pr-review](plugins/pre-pr-review) | Gated review of a finished branch — surface, E2E, architecture, tests, mutation testing — before `gh pr create` is allowed |
+| [reviewer-eval](plugins/reviewer-eval) | A defect a reviewer missed becomes a kept eval case; the new rule must turn the reviewer's miss into a catch, and stay quiet on the fix |
 | [review-mode](plugins/review-mode) | While you read a PR, Claude answers and runs things but queues change requests instead of editing |
 | [spec-delta](plugins/spec-delta) | Design specs list their Delta — every new name, one line each — and a hook blocks new specs that miss a template section |
 

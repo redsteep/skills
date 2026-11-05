@@ -59,7 +59,7 @@ grep -qiE "$markers" <<<"$prompt" || exit 0
 
 note="$reply
 
-Only when the amendment changes an architectural guideline (where things live: which class owns which dependency, which layer or phase does what, which entity holds a field), offer (don't run) to test it with the verify-amendment skill: subagents replay the review on the commit that made the mistake — the reviewer must now flag it in that commit's code and spec, and stay quiet on the fixed commit — and regenerate the spec from the pre-feature commit, which must now plan the fixed architecture. Name the commits and the subagent count in the offer. Any other amendment (tests, process, review procedure, wording) gets no offer.
+When the amendment is a rule a reviewer reads (code, tests, placement, naming) and a reviewer missed the mistake, offer (don't run) the reviewer-eval skill (reviewer-eval@redsteep): it keeps the mistake as an eval case and runs the reviewer in subagents on the commit that made it — it must miss it under today's rules, catch it with the amendment, and stay quiet on the fixed commit. Name the reviewer, the commits and the subagent count in the offer. A process or preference amendment gets no offer.
 
 Where to look, by kind of lesson:
 $map"

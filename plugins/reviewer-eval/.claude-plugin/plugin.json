@@ -1,0 +1,17 @@
+{
+  "name": "reviewer-eval",
+  "version": "0.1.0",
+  "description": "Turn a defect a reviewer missed into a kept eval case, and prove the rule that should catch it: the reviewer must miss it under today's rules, catch it with the amended rule, and stay quiet on the fixed commit — each run a subagent on throwaway worktrees.",
+  "author": {
+    "name": "Stanislav Krasnoyarov",
+    "url": "https://github.com/redsteep"
+  },
+  "repository": "https://github.com/redsteep/skills",
+  "license": "MIT",
+  "keywords": [
+    "eval",
+    "review",
+    "instructions",
+    "workflow"
+  ]
+}

@@ -32,6 +32,12 @@
       "category": "workflow"
     },
     {
+      "name": "reviewer-eval",
+      "source": "./plugins/reviewer-eval",
+      "description": "Turn a defect a reviewer missed into a kept eval case, and prove the rule that should catch it: missed under today's rules, caught with the new one, quiet on the fixed commit.",
+      "category": "workflow"
+    },
+    {
       "name": "nightly-backlog",
       "source": "./plugins/nightly-backlog",
       "description": "Unattended night run: takes one allowed tech-debt item (GitHub issues by default, any backlog via the profile) to a PR — a draft only while a gate stays open — proposes markings for a few more, and notifies through a project-defined command.",

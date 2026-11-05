@@ -15,19 +15,11 @@ them from real transcripts, not by guessing.
 
 ## Proving an amendment works
 
-A rule can read well and change nothing. With an amendment that changes an architectural
-guideline (and only then), the note also has Claude **offer** the `verify-amendment` skill, which replays the past in throwaway worktrees with
-the amendment overlaid:
-
-1. **Reviewer** — on the commit that made the mistake, the review must now flag it in the
-   code and (if it was planned there) in the spec; on the fixed commit it must stay quiet.
-2. **Spec writer** (architectural lessons only) — one run designs the feature again from
-   the pre-feature commit with a scripted user who leaves architecture to the agent; a grader
-   describes the architecture it proposed and checks it against binary checks taken from the
-   fixed commit.
-
-The report shows what each agent actually found or proposed, then a pass/fail verdict. It
-runs on your yes, not by default.
+A rule can read well and change nothing. When the amendment is one a reviewer reads and a
+reviewer missed the mistake, the note also has Claude **offer** the
+[`reviewer-eval`](../reviewer-eval) plugin's skill: it keeps the mistake as an eval case and
+replays the reviewer on the commit that made it — a miss under today's rules, a catch with the
+amendment, quiet on the fixed commit. It runs on your yes, not by default.
 
 ## The project profile
 
