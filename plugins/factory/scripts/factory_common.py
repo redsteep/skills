@@ -145,11 +145,26 @@ class Profile:
         return _unquote(raw) if raw is not None else default
 
     def text(self, section: str, key: str, default: str | None = None) -> str | None:
-        """The key's whole line as written — for values that are prose, not a token."""
-        for line in self._sections.get(section, []):
+        """The key's whole value as written, a wrap joined into one line — for values that are
+        prose, not a token. The value ends at the next bullet, a blank line, a fence, a comment,
+        a table row, or any line not indented under it.
+
+        Reading the first line only truncated a wrapped value silently instead of failing: on
+        2026-11-06 `## Issues` → `Off limits`, wrapped over four lines, reached a worker as
+        "production data and anything that writes to it — no `cloud-sql-proxy`, no" — the rest of
+        the rule, migrations and `terraform/` included, had never been told to anyone.
+        """
+        lines = self._sections.get(section, [])
+        for i, line in enumerate(lines):
             m = re.match(r"^- \*\*(.+?):\*\*\s*(.*)$", line)
             if m and m[1].strip().lower() == key.lower():
-                return m[2].strip()
+                value = [m[2].strip()]
+                for nxt in lines[i + 1:]:
+                    if (not nxt.strip() or not nxt[:1].isspace()
+                            or nxt.lstrip().startswith(("- ", "```", "<!--", "|"))):
+                        break
+                    value.append(nxt.strip())
+                return " ".join(part for part in value if part).strip()
         return default
 
     def require(self, section: str, key: str) -> str:

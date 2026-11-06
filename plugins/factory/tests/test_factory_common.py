@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from datetime import datetime, timedelta, timezone  # noqa: E402
 
 from factory_common import (  # noqa: E402
-    WORKER_GRACE, branch_matches, load_repo_secrets, resolve_branch, slugify, step_branch,
+    WORKER_GRACE, Profile, branch_matches, load_repo_secrets, resolve_branch, slugify, step_branch,
     worker_view,
 )
 
@@ -38,6 +38,43 @@ class RepoSecrets(unittest.TestCase):
         with mock.patch.dict(os.environ, {"TRELLO_TOKEN": "from-systemd"}, clear=True):
             load_repo_secrets(self.repo)
             self.assertEqual(os.environ["TRELLO_TOKEN"], "from-systemd")
+
+
+WRAPPED = """## Issues
+
+- **Label:** `tech-debt` — the kind of work, not an approval: every item of the backlog
+  carries it, and whether one can be done unattended is the worker's call
+- **Off limits:** anything that writes to production; no migrations and no backfills;
+  nothing under `terraform/` or `.github/`; no change to a financial number.
+  Any of those is a card, not an issue.
+- **Per day:** `5`
+
+Prose of the section, after a blank line — not part of any value.
+"""
+
+
+class ProfileValues(unittest.TestCase):
+    """A `- **Key:** value` bullet wrapped over lines is one value: the prompt gets all of it.
+    Returning the first line only truncated a rule silently instead of failing."""
+
+    def setUp(self):
+        self.profile = Profile(WRAPPED)
+
+    def test_a_prose_value_wrapped_over_lines_is_read_whole(self):
+        self.assertEqual(
+            self.profile.text("Issues", "Off limits"),
+            "anything that writes to production; no migrations and no backfills; nothing under "
+            "`terraform/` or `.github/`; no change to a financial number. "
+            "Any of those is a card, not an issue.")
+
+    def test_a_wrapped_value_stops_at_the_next_bullet(self):
+        self.assertNotIn("Per day", self.profile.text("Issues", "Off limits"))
+
+    def test_a_blank_line_ends_the_last_value_of_a_section(self):
+        self.assertEqual(self.profile.text("Issues", "Per day"), "`5`")
+
+    def test_a_token_value_is_unaffected_by_the_lines_that_wrap_it(self):
+        self.assertEqual(self.profile.get("Issues", "Label"), "tech-debt")
 
 
 NOW = datetime(2026, 10, 27, 17, 0, tzinfo=timezone.utc)
