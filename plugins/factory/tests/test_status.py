@@ -223,6 +223,7 @@ class Page(unittest.TestCase):
         need = html[html.index('<article class="need'):html.index('id="underway"')]
         self.assertIn("Card c1", need)
         self.assertIn("Review PR #5", need)
+        self.assertIn('<a href="https://github.com/o/r/pull/5">PR #5</a>', need)
         self.assertIn('href="claude://claude.ai/code/session_X"', need)
         self.assertIn('href="https://claude.ai/code/session_X"', need)
         under_way = html[html.index('id="underway"'):]
@@ -238,6 +239,17 @@ class Page(unittest.TestCase):
         html = render(status)
         self.assertLess(html.index("Dispatch failed"), html.index("Approve spec"))
         self.assertIn('class="need critical"', html)
+
+    def test_a_merged_pr_stays_linked(self):
+        status = {"pools": {"cards": {"busy": 1, "wip": 1}, "issues": {"busy": 0, "wip": 1}}, "attention": [],
+                  "items": [{"name": "A", "url": None, "issue": None, "steps": [
+                      {"n": 1, "total": 1, "name": "A", "activity": "working", "conversation": None,
+                       "prs": [{"number": 9, "url": "https://github.com/o/r/pull/9", "state": "MERGED",
+                                "ci": "passed", "conflicting": False}]}]}],
+                  "dispatch": []}
+        html = render(status)
+        self.assertIn('<a href="https://github.com/o/r/pull/9">PR #9</a>', html)
+        self.assertIn("merged", html)
 
     def test_names_are_escaped(self):
         w = world([replace(card("c1", [Item("<script>x</script>", False)]), name="A & <b>")])

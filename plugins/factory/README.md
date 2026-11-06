@@ -216,7 +216,7 @@ in the Slack DM, or **Open** on the status page, which opens it in the Claude de
 - **Status page:** `~/.local/state/factory/www/index.html`, rewritten by every dispatch (setup step
   9 serves it to your Mac and phone). The slots, then what waits for you — one card per decision,
   named by what it is (*Approve brief*, *Approve spec*, *Review PR #n*, *After merge*, *Answer*;
-  *No worker* and *Dispatch failed* first), each with one **Open in Claude** button — then what
+  *No worker* and *Dispatch failed* first), each with its PRs linked (CI, conflict or how it ended beside each) and one **Open in Claude** button — then what
   is under way, without what already waits for you; queued and held steps and what the dispatch did
   are folded away. The snapshot's `attention[].kind` carries that name. It reloads every minute, reads **stale**
   once nothing has rewritten it for ten minutes, and **paused** while you have paused the factory.
