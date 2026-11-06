@@ -176,7 +176,7 @@ def snapshot(world: World, actions: list, failed: list = (), conversations: dict
             if act == WAITS_YOU:
                 attention.append({"why": "brief to talk through and approve" if phase == BRIEF
                                   else "waits for you", "kind": "brief" if phase == BRIEF else "question",
-                                  "pr": None, "title": f"{card.name} · {phase}",
+                                  "pr": None, "prs": [], "title": f"{card.name} · {phase}",
                                   "worker": split, "conversation": conversations.get(split)})
             items.append(entry)
             continue
@@ -201,16 +201,17 @@ def snapshot(world: World, actions: list, failed: list = (), conversations: dict
             entry["steps"].append(row)
             if row["activity"] == WAITS_YOU:
                 kind, number = need_kind(s, prs)
-                attention.append({"why": "waits for you", "kind": kind, "pr": number, "title": row["title"],
-                                  "worker": s.worker, "conversation": row["conversation"]})
+                attention.append({"why": "waits for you", "kind": kind, "pr": number, "prs": row["prs"],
+                                  "title": row["title"], "worker": s.worker, "conversation": row["conversation"]})
             elif row["activity"] == NO_WORKER:
                 attention.append({"why": "under way with no worker — waits for a free slot", "kind": "no-worker",
-                                  "pr": None, "title": row["title"], "worker": s.worker, "conversation": None})
+                                  "pr": None, "prs": row["prs"], "title": row["title"], "worker": s.worker,
+                                  "conversation": None})
         items.append(entry)
     for action, exc in failed:
         attention.append({"why": f"failed: {describe(action) or type(action).__name__}: "
                                  f"{(str(exc).splitlines() or [''])[0][:300]}",
-                          "kind": "failed", "pr": None, "title": None, "worker": None, "conversation": None})
+                          "kind": "failed", "pr": None, "prs": [], "title": None, "worker": None, "conversation": None})
     return {
         "schema": SCHEMA,
         "paused": False,

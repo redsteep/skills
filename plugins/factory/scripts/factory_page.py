@@ -185,7 +185,8 @@ def needs(status: dict) -> list[str]:
         kind = _kind(a)
         title = (a.get("title") or "").removeprefix("factory · ")
         label = KIND[kind] + (f" #{a['pr']}" if kind == "review" and a.get("pr") else "")
-        why = "" if a["why"] == "waits for you" else escape(a["why"])
+        why = "".join(f"<span>{bit}</span>" for bit in
+                      ([] if a["why"] == "waits for you" else [escape(a["why"])]) + [_ci(p) for p in a.get("prs") or []])
         conv = a.get("conversation")
         actions = (f'<div class="actions"><a class="app" href="{escape(app_url(conv))}">Open in Claude</a>'
                    f'<a class="web" href="{escape(conv)}">web</a></div>') if conv else ""
@@ -213,7 +214,7 @@ def rows(status: dict) -> list[dict]:
             if s["activity"] in ("done", "dropped"):
                 continue
             sub = [f"{s['n']} / {s['total']}" + (f" · {escape(s['name'])}" if s["name"] != item["name"] else "")]
-            sub += [_ci(p) for p in s["prs"] if p["state"] == "OPEN"]
+            sub += [_ci(p) for p in s["prs"]]
             if s.get("review_queued"):
                 sub.append(f"{s['review_queued']} queued in review")
             out.append({"activity": s["activity"], "name": name, "url": item.get("url"), "sub": sub,
